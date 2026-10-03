@@ -1,0 +1,150 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =====================================================================
+   LIFEDROP DESIGN SYSTEM & THEME TOKENS
+   "Every Drop Counts. Every Life Saved."
+   ===================================================================== */
+
+:root {
+  /* LifeDrop Brand Colors */
+  --lifedrop-primary: #C62828;
+  --lifedrop-primary-dark: #991B1B;
+  --lifedrop-primary-light: #EF4444;
+  --lifedrop-coral: #FF5252;
+  --lifedrop-surface: #FFFFFF;
+  --lifedrop-bg: #FFF8F8;
+  --lifedrop-bg-subtle: #FDF2F2;
+  --lifedrop-ink: #0F172A;
+  --lifedrop-ink-muted: #64748B;
+  --lifedrop-border: #FEE2E2;
+
+  /* Fonts */
+  --font-heading: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+  --font-body: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+
+  /* Shadows */
+  --shadow-lifedrop: 0 12px 32px rgba(198, 40, 40, 0.08), 0 4px 12px rgba(0, 0, 0, 0.03);
+  --shadow-lifedrop-lg: 0 20px 48px rgba(198, 40, 40, 0.16), 0 8px 24px rgba(0, 0, 0, 0.06);
+  --shadow-sos: 0 0 0 0 rgba(198, 40, 40, 0.7), 0 8px 24px rgba(198, 40, 40, 0.45);
+}
+
+/* Base Body */
+body.lifedrop-body {
+  font-family: var(--font-body);
+  background-color: var(--lifedrop-bg);
+  color: var(--lifedrop-ink);
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  letter-spacing: -0.015em;
+}
+
+/* Hide scrollbar utility */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Glowing SOS Pulsing Ring Animation */
+@keyframes sos-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(198, 40, 40, 0.7), 0 8px 24px rgba(198, 40, 40, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 16px rgba(198, 40, 40, 0), 0 12px 32px rgba(198, 40, 40, 0.55);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(198, 40, 40, 0), 0 8px 24px rgba(198, 40, 40, 0.45);
+  }
+}
+
+.lifedrop-sos-btn {
+  animation: sos-pulse 2s infinite cubic-bezier(0.4, 0, 0.6, 1);
+}
+
+/* EKG Heartbeat waveform animation */
+@keyframes ekg-dash {
+  to {
+    stroke-dashoffset: -1000;
+  }
+}
+
+.ekg-line {
+  stroke-dasharray: 20, 5;
+  animation: ekg-dash 20s linear infinite;
+}
+
+/* Phone Bezel Sheen */
+.lifedrop-phone-frame::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: 50px;
+  box-shadow: inset 0 0 4px 2px rgba(255, 255, 255, 0.15);
+  pointer-events: none;
+  z-index: 60;
+}
+
+/* Custom UI Panel Elements */
+.lifedrop-card {
+  background: var(--lifedrop-surface);
+  border-radius: 20px;
+  border: 1px solid var(--lifedrop-border);
+  box-shadow: var(--shadow-lifedrop);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.lifedrop-card:hover {
+  box-shadow: var(--shadow-lifedrop-lg);
+}
+
+/* Blood Group Badges */
+.blood-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 9999px;
+  background-color: var(--lifedrop-primary);
+  color: #FFFFFF;
+  font-weight: 800;
+  font-size: 13px;
+  box-shadow: 0 4px 10px rgba(198, 40, 40, 0.3);
+}
+
+/* Navigation Link Pills */
+.nav-pill-btn {
+  padding: 8px 16px;
+  border-radius: 9999px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--lifedrop-ink-muted);
+  transition: all 0.15s ease;
+}
+
+.nav-pill-btn:hover,
+.nav-pill-btn.active {
+  background-color: #FFF0F0;
+  color: var(--lifedrop-primary);
+}
+
+/* Layout Containers */
+.app-container {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 24px;
+}

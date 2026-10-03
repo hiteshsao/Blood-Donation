@@ -1,0 +1,13 @@
+{
+  "name": "blood-donation-management-system",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MERN Blood Donation Management System",
+  "scripts": {
+    "start:server": "cd server && node src/server.js",
+    "dev:server": "cd server && npm run dev",
+    "dev:client": "cd client && npm run dev",
+    "build:client": "cd client && npm run build",
+    "test:server": "cd server && npm test"
+  }
+}

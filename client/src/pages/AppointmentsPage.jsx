@@ -17,6 +17,7 @@ import {
 import toast from 'react-hot-toast';
 import { appointmentAPI, searchAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import BloodBankAppointmentsView from '../components/BloodBankAppointmentsView';
 import {
   Button,
   Input,
@@ -72,7 +73,7 @@ export const formatAddress = (addr, fallbackCity = '') => {
   return parts.length > 0 ? parts.join(', ') : fallbackCity;
 };
 
-export const AppointmentsPage = () => {
+const DonorAppointmentsView = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -637,6 +638,16 @@ export const AppointmentsPage = () => {
       </Modal>
     </div>
   );
+};
+
+export const AppointmentsPage = () => {
+  const { user } = useAuth();
+
+  if (user?.role === 'BLOOD_BANK') {
+    return <BloodBankAppointmentsView />;
+  }
+
+  return <DonorAppointmentsView />;
 };
 
 export default AppointmentsPage;

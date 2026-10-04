@@ -119,7 +119,11 @@ router.post(
       .toUpperCase()
       .isIn(validUrgencies)
       .withMessage(`urgency must be one of: ${validUrgencies.join(', ')}`),
+    body('hospitalName').optional().trim(),
     body('contactNumber').optional().trim(),
+    body('contactPhone').optional().trim(),
+    body('donorId').optional().trim(),
+    body('targetedDonor').optional().trim(),
     body('notes').optional().trim(),
     validateRequest,
   ],

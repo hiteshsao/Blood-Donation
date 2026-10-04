@@ -273,6 +273,10 @@ export const updateGroupStock = async (bloodBankId, rawBloodGroup, updateData = 
       throw err;
     }
 
+    if (updateData.threshold !== undefined || updateData.lowStockThreshold !== undefined) {
+      inv.lowStockThreshold = Math.max(1, Number(updateData.threshold || updateData.lowStockThreshold));
+    }
+
     inv.available = newAvailable;
     inv.unitsAvailable = newAvailable;
     inv.reserved = newReserved;
@@ -363,6 +367,10 @@ export const updateGroupStock = async (bloodBankId, rawBloodGroup, updateData = 
         if (expired !== undefined) newExpired = Math.max(0, Number(expired));
       }
 
+      if (updateData.threshold !== undefined || updateData.lowStockThreshold !== undefined) {
+        inv.lowStockThreshold = Math.max(1, Number(updateData.threshold || updateData.lowStockThreshold));
+      }
+
       inv.available = newAvailable;
       inv.unitsAvailable = newAvailable;
       inv.reserved = newReserved;
@@ -380,12 +388,39 @@ export const updateGroupStock = async (bloodBankId, rawBloodGroup, updateData = 
     session.endSession();
   }
 
+  // Trigger low-stock alert if buffer falls below threshold
+  const threshold = updatedDoc.lowStockThreshold || 5;
+  const isLow = updatedDoc.available <= threshold;
+
+  if (isLow) {
+    try {
+      const bank = await BloodBank.findById(bloodBankId);
+      if (bank?.user) {
+        await notify({
+          userId: bank.user,
+          type: 'LOW_STOCK_ALERT',
+          title: `Low Stock Alert: ${bloodGroup}`,
+          message: `Buffer alert: ${bloodGroup} units have dropped to ${updatedDoc.available} (Threshold: ${threshold}). Immediate replenishment recommended.`,
+          channels: ['IN_APP', 'EMAIL', 'SMS'],
+          meta: {
+            bloodBankId,
+            bloodGroup,
+            available: updatedDoc.available,
+            threshold,
+          },
+        });
+      }
+    } catch (alertErr) {
+      console.warn('[BloodBankService] Low stock alert dispatch failed:', alertErr.message);
+    }
+  }
+
   return {
     bloodGroup,
     available: updatedDoc.available,
     reserved: updatedDoc.reserved,
     expired: updatedDoc.expired,
-    isLowStock: updatedDoc.available <= (updatedDoc.lowStockThreshold || 5),
+    isLowStock: isLow,
     inventory: updatedDoc,
   };
 };

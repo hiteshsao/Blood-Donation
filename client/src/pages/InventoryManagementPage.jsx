@@ -14,14 +14,16 @@ import {
   Building2,
   X,
 } from 'lucide-react';
-import api from '../services/api';
+import toast from 'react-hot-toast';
+import api, { searchAPI } from '../services/api';
 
 const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
 export const InventoryManagementPage = () => {
-  // Selected facility state
-  const [selectedBankId, setSelectedBankId] = useState('bb-201');
-  const [selectedBankName, setSelectedBankName] = useState('AIIMS Central Blood Transfusion Centre');
+  // Facility options state
+  const [bloodBanks, setBloodBanks] = useState([]);
+  const [selectedBankId, setSelectedBankId] = useState('');
+  const [selectedBankName, setSelectedBankName] = useState('');
 
   // Inventory rows (one row per blood group)
   const [inventory, setInventory] = useState([
@@ -81,6 +83,46 @@ export const InventoryManagementPage = () => {
   const [modalFeedback, setModalFeedback] = useState({ type: '', text: '' });
   const [submitting, setSubmitting] = useState(false);
 
+  // Fetch real blood banks on mount
+  useEffect(() => {
+    searchAPI.getBloodBanks().then((res) => {
+      const banks = res.data?.data || res.data?.bloodBanks || res.data;
+      if (Array.isArray(banks) && banks.length > 0) {
+        setBloodBanks(banks);
+        setSelectedBankId(banks[0]._id);
+        setSelectedBankName(banks[0].name);
+      }
+    }).catch(() => {});
+  }, []);
+
+  const fetchBankInventory = async (bankId) => {
+    if (!bankId || bankId.length !== 24) return;
+    try {
+      const [invRes, logRes] = await Promise.all([
+        api.get(`/inventory/${bankId}`),
+        api.get(`/inventory/logs/${bankId}`).catch(() => ({ data: { logs: [] } })),
+      ]);
+
+      const items = invRes.data?.inventory;
+      if (Array.isArray(items) && items.length > 0) {
+        setInventory(items);
+      }
+
+      const logs = logRes.data?.logs;
+      if (Array.isArray(logs) && logs.length > 0) {
+        setStockLogs(logs);
+      }
+    } catch (err) {
+      console.warn('[InventoryManagement] Failed to load inventory for bank:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedBankId) {
+      fetchBankInventory(selectedBankId);
+    }
+  }, [selectedBankId]);
+
   // Critical Low Stock Count
   const criticalItems = inventory.filter((item) => item.availableUnits < item.lowStockThreshold);
 
@@ -106,72 +148,24 @@ export const InventoryManagementPage = () => {
     }
 
     try {
-      // Execute atomic transition in state
-      setInventory((prev) =>
-        prev.map((item) => {
-          if (item.bloodGroup === selectedGroup) {
-            let newAvail = item.availableUnits;
-            let newExpired = item.expiredUnits;
-            let newCollected = item.totalCollectedUnits;
+      const res = await api.post('/inventory/update', {
+        bloodBankId: selectedBankId,
+        bloodGroup: selectedGroup,
+        changeType,
+        units,
+        reason: reasonInput || `Manual ${changeType.toLowerCase()} action`,
+      });
 
-            if (changeType === 'ADD') {
-              newAvail += units;
-              newCollected += units;
-            } else if (changeType === 'ISSUE') {
-              if (item.availableUnits < units) {
-                throw new Error(`Insufficient units available (${item.availableUnits} units on hand).`);
-              }
-              newAvail -= units;
-            } else if (changeType === 'EXPIRE') {
-              if (item.availableUnits < units) {
-                throw new Error(`Cannot expire more units than available (${item.availableUnits} units).`);
-              }
-              newAvail -= units;
-              newExpired += units;
-            } else if (changeType === 'ADJUST') {
-              newAvail = units;
-            }
-
-            return {
-              ...item,
-              availableUnits: newAvail,
-              expiredUnits: newExpired,
-              totalCollectedUnits: newCollected,
-              lastUpdated: new Date().toISOString(),
-            };
-          }
-          return item;
-        })
-      );
-
-      // Append immutable log entry
-      const currentItem = inventory.find((i) => i.bloodGroup === selectedGroup);
-      const prevUnits = currentItem ? currentItem.availableUnits : 0;
-      let finalUnits = prevUnits;
-      if (changeType === 'ADD') finalUnits += units;
-      else if (changeType === 'ISSUE' || changeType === 'EXPIRE') finalUnits -= units;
-      else if (changeType === 'ADJUST') finalUnits = units;
-
-      setStockLogs((prev) => [
-        {
-          _id: `log-${Date.now()}`,
-          bloodGroup: selectedGroup,
-          changeType,
-          units,
-          previousAvailableUnits: prevUnits,
-          newAvailableUnits: finalUnits,
-          performedBy: { name: 'Clinical Administrator' },
-          reason: reasonInput || `Manual ${changeType.toLowerCase()} action`,
-          createdAt: new Date().toISOString(),
-        },
-        ...prev,
-      ]);
-
+      await fetchBankInventory(selectedBankId);
       setSubmitting(false);
       setModalOpen(false);
+      toast.success(res.data?.message || 'Inventory updated successfully in database.');
     } catch (err) {
       setSubmitting(false);
-      setModalFeedback({ type: 'urgent', text: err.message || 'Atomic stock transaction failed.' });
+      setModalFeedback({
+        type: 'urgent',
+        text: err.response?.data?.message || err.message || 'Atomic stock transaction failed.',
+      });
     }
   };
 
@@ -193,17 +187,22 @@ export const InventoryManagementPage = () => {
               className="form-select"
               value={selectedBankId}
               onChange={(e) => {
-                setSelectedBankId(e.target.value);
-                setSelectedBankName(
-                  e.target.value === 'bb-201'
-                    ? 'AIIMS Central Blood Transfusion Centre'
-                    : 'Red Cross National Blood Bank'
-                );
+                const bId = e.target.value;
+                setSelectedBankId(bId);
+                const found = bloodBanks.find((b) => b._id === bId);
+                setSelectedBankName(found ? found.name : '');
               }}
               style={{ padding: '6px 32px 6px 10px', fontSize: 13 }}
             >
-              <option value="bb-201">AIIMS Central Blood Transfusion Centre (New Delhi)</option>
-              <option value="bb-202">Red Cross National Blood Bank (Delhi Central)</option>
+              {bloodBanks.length > 0 ? (
+                bloodBanks.map((b) => (
+                  <option key={b._id} value={b._id}>
+                    {b.name} ({b.city})
+                  </option>
+                ))
+              ) : (
+                <option value={selectedBankId}>{selectedBankName || 'Loading Blood Banks...'}</option>
+              )}
             </select>
           </div>
         </div>

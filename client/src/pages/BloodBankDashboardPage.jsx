@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Building2,
@@ -180,9 +180,43 @@ export const BloodBankDashboardPage = () => {
     threshold: 6,
   });
   const [isUpdatingStock, setIsUpdatingStock] = useState(false);
+  const [loadingInventory, setLoadingInventory] = useState(false);
+
+  // Fetch live inventory from database
+  const fetchInventory = useCallback(async () => {
+    setLoadingInventory(true);
+    try {
+      const res = await bloodBankAPI.getInventory();
+      const list = res.data?.inventory || res.data?.data || res.data;
+      if (Array.isArray(list) && list.length > 0) {
+        const formatted = list.map((item) => ({
+          _id: item._id,
+          group: item.bloodGroup || item.group,
+          bloodGroup: item.bloodGroup || item.group,
+          available: item.available ?? item.unitsAvailable ?? 0,
+          reserved: item.reserved ?? item.unitsReserved ?? 0,
+          expired: item.expired ?? item.unitsExpired ?? 0,
+          threshold: item.lowStockThreshold || item.threshold || 5,
+          lowStockThreshold: item.lowStockThreshold || item.threshold || 5,
+          lastUpdated: item.lastUpdated ? new Date(item.lastUpdated).toLocaleDateString() : 'Today',
+          batches: item.batches || [],
+        }));
+        setInventory(formatted);
+      }
+    } catch (err) {
+      console.warn('[BloodBank] Live inventory fetch failed, keeping fallback:', err.message);
+    } finally {
+      setLoadingInventory(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchInventory();
+  }, [fetchInventory]);
 
   // Appointments State
   const [appointments, setAppointments] = useState(INITIAL_APPOINTMENTS);
+  const [loadingAppointments, setLoadingAppointments] = useState(false);
   const [aptFilter, setAptFilter] = useState('ALL');
   const [completeModalOpen, setCompleteModalOpen] = useState(false);
   const [selectedAptToComplete, setSelectedAptToComplete] = useState(null);
@@ -194,6 +228,38 @@ export const BloodBankDashboardPage = () => {
     notes: 'Donation procedure normal without adverse events.',
   });
   const [isCompletingApt, setIsCompletingApt] = useState(false);
+
+  // Fetch live bank appointments from DB
+  const fetchAppointments = useCallback(async () => {
+    setLoadingAppointments(true);
+    try {
+      const res = await appointmentAPI.getBankAppointments();
+      const list = res.data?.appointments || res.data?.data || res.data;
+      if (Array.isArray(list) && list.length > 0) {
+        const formatted = list.map((item) => ({
+          _id: item._id,
+          donorName: item.donor?.name || 'Voluntary Donor',
+          donorPhone: item.donor?.phone || item.donor?.mobile || 'N/A',
+          donorEmail: item.donor?.email || '',
+          bloodGroup: item.donor?.bloodGroup || item.bloodGroup || 'O+',
+          slotDate: item.slotDate ? new Date(item.slotDate).toLocaleDateString() : 'Today',
+          slotTime: item.slotTime || '10:00 AM - 11:00 AM',
+          status: item.status,
+          bagNo: item.bagNo || item.donation?.bagNo || '',
+          notes: item.notes || '',
+        }));
+        setAppointments(formatted);
+      }
+    } catch (err) {
+      console.warn('[BloodBank] Live appointments fetch failed, keeping fallback:', err.message);
+    } finally {
+      setLoadingAppointments(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAppointments();
+  }, [fetchAppointments]);
 
   // Record Donation State
   const [donationForm, setDonationForm] = useState({
@@ -279,45 +345,22 @@ export const BloodBankDashboardPage = () => {
         newCount = Math.max(0, editingGroup.available - Number(editForm.units));
       }
 
-      await bloodBankAPI.updateGroupStock(editingGroup.group, {
+      const res = await bloodBankAPI.updateGroupStock(editingGroup.group, {
         action: editForm.action,
         units: Number(editForm.units),
         available: newCount,
+        threshold: Number(editForm.threshold),
       });
 
-      // Update local state
-      setInventory((prev) =>
-        prev.map((item) =>
-          item.group === editingGroup.group
-            ? {
-                ...item,
-                available: newCount,
-                threshold: Number(editForm.threshold),
-                lastUpdated: 'Just now',
-              }
-            : item
-        )
-      );
-
       toast.success(
-        `Blood Group ${editingGroup.group} stock updated to ${newCount} units.`
+        res.data?.message || `Blood Group ${editingGroup.group} stock updated to ${newCount} units.`
       );
       setEditStockModalOpen(false);
-    } catch {
-      toast.success(`Inventory stock updated for group ${editingGroup.group}.`);
-      setInventory((prev) =>
-        prev.map((item) =>
-          item.group === editingGroup.group
-            ? {
-                ...item,
-                available: Number(editForm.units),
-                threshold: Number(editForm.threshold),
-                lastUpdated: 'Just now',
-              }
-            : item
-        )
+      await fetchInventory();
+    } catch (err) {
+      toast.error(
+        err.response?.data?.message || err.message || 'Failed to update stock in database.'
       );
-      setEditStockModalOpen(false);
     } finally {
       setIsUpdatingStock(false);
     }
@@ -370,6 +413,7 @@ export const BloodBankDashboardPage = () => {
       toast.success(
         `Donation recorded! ${donationForm.units} unit of ${donationForm.bloodGroup} added to inventory.`
       );
+      await fetchInventory();
 
       // Reset Form
       setDonationForm({
@@ -453,6 +497,8 @@ export const BloodBankDashboardPage = () => {
         `Successfully issued ${issueForm.units} unit(s) of ${issueForm.bloodGroup} to ${issueForm.recipientHospital}.`
       );
 
+      await fetchInventory();
+
       setIssueForm({
         recipientHospital: 'Apollo City Hospital',
         bloodGroup: 'O-',
@@ -496,6 +542,7 @@ export const BloodBankDashboardPage = () => {
         bagNo: completeForm.bagNo,
         units: completeForm.actualUnits,
         bloodGroup: selectedAptToComplete.bloodGroup,
+        remarks: completeForm.notes,
       });
 
       // Update appointment status locally
@@ -534,6 +581,7 @@ export const BloodBankDashboardPage = () => {
       toast.success(
         `Appointment marked COMPLETED. 1 unit of ${selectedAptToComplete.bloodGroup} added to inventory.`
       );
+      await Promise.all([fetchInventory(), fetchAppointments()]);
       setCompleteModalOpen(false);
     } catch {
       toast.success('Appointment completed and donation logged.');
@@ -556,6 +604,7 @@ export const BloodBankDashboardPage = () => {
         prev.map((a) => (a._id === aptId ? { ...a, status: 'NO_SHOW' } : a))
       );
       toast.success('Donor appointment marked as NO-SHOW.');
+      await fetchAppointments();
     } catch {
       setAppointments((prev) =>
         prev.map((a) => (a._id === aptId ? { ...a, status: 'NO_SHOW' } : a))
@@ -567,6 +616,14 @@ export const BloodBankDashboardPage = () => {
   // Filtered Appointments
   const filteredAppointments = appointments.filter((a) => {
     if (aptFilter === 'ALL') return true;
+    if (aptFilter === 'CONFIRMED' || aptFilter === 'BOOKED') {
+      return (
+        a.status === 'BOOKED' ||
+        a.status === 'CONFIRMED' ||
+        a.status === 'RESCHEDULED' ||
+        a.status === 'SCHEDULED'
+      );
+    }
     return a.status === aptFilter;
   });
 
@@ -638,7 +695,7 @@ export const BloodBankDashboardPage = () => {
           { key: 'inventory', label: `Inventory Table (${totalAvailable} Units)`, icon: <Package className="w-4 h-4" /> },
           { key: 'record-donation', label: 'Record Incoming Donation', icon: <PlusCircle className="w-4 h-4" /> },
           { key: 'issue-units', label: 'Issue Units', icon: <Send className="w-4 h-4" /> },
-          { key: 'appointments', label: `Appointments (${appointments.filter(a => a.status === 'CONFIRMED').length})`, icon: <Calendar className="w-4 h-4" /> },
+          { key: 'appointments', label: `Appointments (${appointments.filter(a => a.status === 'BOOKED' || a.status === 'CONFIRMED' || a.status === 'RESCHEDULED').length})`, icon: <Calendar className="w-4 h-4" /> },
           { key: 'history', label: 'Donation & Issue History', icon: <History className="w-4 h-4" /> },
         ].map((tab) => (
           <button
@@ -690,7 +747,7 @@ export const BloodBankDashboardPage = () => {
             />
             <StatCard
               title="Today's Appointments"
-              value={`${appointments.filter((a) => a.status === 'CONFIRMED').length} Scheduled`}
+              value={`${appointments.filter((a) => a.status === 'BOOKED' || a.status === 'CONFIRMED' || a.status === 'RESCHEDULED').length} Scheduled`}
               subtitle="Voluntary donor visits"
               icon={<Calendar className="w-5 h-5 text-emerald-600" />}
               color="emerald"
@@ -1245,7 +1302,7 @@ export const BloodBankDashboardPage = () => {
             </div>
 
             <div className="flex items-center gap-2 overflow-x-auto">
-              {['ALL', 'CONFIRMED', 'COMPLETED', 'NO_SHOW'].map((st) => (
+              {['ALL', 'BOOKED', 'COMPLETED', 'NO_SHOW'].map((st) => (
                 <button
                   key={st}
                   type="button"
@@ -1266,55 +1323,71 @@ export const BloodBankDashboardPage = () => {
           </div>
 
           <div className="space-y-3">
-            {filteredAppointments.map((apt) => (
-              <div
-                key={apt._id}
-                className="bg-white rounded-3xl p-5 border border-red-100 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:shadow-md transition-shadow"
-              >
-                <div className="flex items-center gap-3.5">
-                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-[#991B1B] to-[#C62828] text-white font-black text-sm flex items-center justify-center shrink-0">
-                    {apt.bloodGroup}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h4 className="text-sm font-bold text-slate-900">{apt.donorName}</h4>
-                      <StatusBadge status={apt.status} size="xs" />
-                    </div>
-                    <p className="text-xs text-slate-500 font-medium mt-0.5">
-                      {apt.slotDate} • {apt.slotTime} • {apt.donorPhone}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Actions: Complete / No-Show */}
-                {apt.status === 'CONFIRMED' ? (
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={() => handleOpenCompleteModal(apt)}
-                      leftIcon={<CheckCircle2 className="w-4 h-4" />}
-                    >
-                      Complete Donation
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleMarkNoShow(apt._id)}
-                      leftIcon={<XCircle className="w-4 h-4" />}
-                    >
-                      No-Show
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="text-right">
-                    <span className="text-xs font-bold text-slate-500">
-                      {apt.status === 'COMPLETED' ? `Donation Logged (${apt.bagNo || 'Verified'})` : 'Missed Slot'}
-                    </span>
-                  </div>
-                )}
+            {loadingAppointments ? (
+              <div className="py-12 flex justify-center bg-white rounded-3xl border border-red-100">
+                <Loader message="Loading appointments..." />
               </div>
-            ))}
+            ) : filteredAppointments.length === 0 ? (
+              <EmptyState
+                title="No Appointments Found"
+                description="No donor appointments found under this filter."
+                actionLabel="Show All"
+                onAction={() => setAptFilter('ALL')}
+              />
+            ) : (
+              filteredAppointments.map((apt) => (
+                <div
+                  key={apt._id}
+                  className="bg-white rounded-3xl p-5 border border-red-100 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:shadow-md transition-shadow"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-[#991B1B] to-[#C62828] text-white font-black text-sm flex items-center justify-center shrink-0">
+                      {apt.bloodGroup}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-sm font-bold text-slate-900">{apt.donorName}</h4>
+                        <StatusBadge status={apt.status} size="xs" />
+                      </div>
+                      <p className="text-xs text-slate-500 font-medium mt-0.5">
+                        {apt.slotDate} • {apt.slotTime} • {apt.donorPhone}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Actions: Complete / No-Show */}
+                  {(apt.status === 'BOOKED' ||
+                    apt.status === 'CONFIRMED' ||
+                    apt.status === 'RESCHEDULED' ||
+                    apt.status === 'SCHEDULED') ? (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => handleOpenCompleteModal(apt)}
+                        leftIcon={<CheckCircle2 className="w-4 h-4" />}
+                      >
+                        Complete Donation
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleMarkNoShow(apt._id)}
+                        leftIcon={<XCircle className="w-4 h-4" />}
+                      >
+                        No-Show
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="text-right">
+                      <span className="text-xs font-bold text-slate-500">
+                        {apt.status === 'COMPLETED' ? `Donation Logged (${apt.bagNo || 'Verified'})` : 'Missed Slot'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
           </div>
         </div>
       )}

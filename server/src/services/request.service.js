@@ -1,4 +1,4 @@
-import { BloodRequest, Hospital, Notification, User } from '../models/index.js';
+import { BloodRequest, DonorProfile, Hospital, Notification, User } from '../models/index.js';
 import { toGeoJSONPoint } from '../utils/geo.util.js';
 import { notify } from './notification.service.js';
 
@@ -189,7 +189,7 @@ export const createBloodRequest = async (userId, userRole, data) => {
     throw err;
   }
 
-  const contactNumber = data.contactNumber?.trim() || user.phone || user.mobile || '';
+  const contactNumber = data.contactNumber?.trim() || data.contactPhone?.trim() || user.phone || user.mobile || '';
   const location = parseLocation(data.location || user.location);
 
   const initialStatus = 'PENDING';
@@ -202,6 +202,35 @@ export const createBloodRequest = async (userId, userRole, data) => {
     },
   ];
 
+  // Resolve targeted donor if provided
+  let assignedDonors = [];
+  const targetDonorInput = data.donorId || data.targetedDonor;
+  let targetDonorUser = null;
+
+  if (targetDonorInput) {
+    try {
+      targetDonorUser = await User.findById(targetDonorInput);
+      if (!targetDonorUser) {
+        let dProfile = await DonorProfile.findById(targetDonorInput).populate('user');
+        if (!dProfile) {
+          dProfile = await DonorProfile.findOne({ user: targetDonorInput }).populate('user');
+        }
+        if (dProfile?.user) {
+          targetDonorUser = dProfile.user._id ? dProfile.user : await User.findById(dProfile.user);
+        }
+      }
+      if (targetDonorUser) {
+        assignedDonors.push({
+          donor: targetDonorUser._id,
+          status: 'ASSIGNED',
+          assignedAt: new Date(),
+        });
+      }
+    } catch (e) {
+      console.warn('[RequestService] Unable to resolve targeted donor:', e.message);
+    }
+  }
+
   const request = await BloodRequest.create({
     requester: userId,
     hospital: hospitalId,
@@ -210,15 +239,17 @@ export const createBloodRequest = async (userId, userRole, data) => {
     bloodGroup,
     units,
     city,
-    urgency: data.urgency || 'ROUTINE',
+    urgency: data.urgency ? data.urgency.toUpperCase() : 'ROUTINE',
     status: initialStatus,
     contactNumber,
     notes: data.notes || '',
     location,
+    assignedDonors,
+    matchedDonors: assignedDonors,
     statusHistory: initialHistory,
   });
 
-  // Notification for request creation
+  // Notification for request creation to requester
   try {
     await notify({
       userId,
@@ -236,6 +267,27 @@ export const createBloodRequest = async (userId, userRole, data) => {
     });
   } catch (notifErr) {
     console.error('[RequestService] Notification creation failed:', notifErr.message);
+  }
+
+  // Notification to targeted donor if present
+  if (targetDonorUser) {
+    try {
+      await notify({
+        userId: targetDonorUser._id,
+        type: 'REQUEST_DONOR_ASSIGNED',
+        title: 'New Blood Request Match',
+        message: `You have been directly requested for a donation of ${units} unit(s) of ${bloodGroup} for patient ${patientName} in ${city}.`,
+        channels: ['IN_APP', 'EMAIL', 'SMS'],
+        meta: {
+          requestId: request._id,
+          patientName,
+          bloodGroup,
+          units,
+        },
+      });
+    } catch (dNotifErr) {
+      console.error('[RequestService] Targeted donor notification failed:', dNotifErr.message);
+    }
   }
 
   return request;

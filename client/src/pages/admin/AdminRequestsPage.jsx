@@ -92,6 +92,7 @@ const COMPATIBLE_DONORS_MOCK = [
 export const AdminRequestsPage = () => {
   const [requests, setRequests] = useState(FALLBACK_ADMIN_REQUESTS);
   const [loading, setLoading] = useState(false);
+  const [donorsList, setDonorsList] = useState(COMPATIBLE_DONORS_MOCK);
 
   // Assign Donor Modal State
   const [assignModalOpen, setAssignModalOpen] = useState(false);
@@ -110,11 +111,11 @@ export const AdminRequestsPage = () => {
     try {
       const res = await adminAPI.getRequests();
       const data = res.data?.data || res.data?.requests || res.data;
-      if (Array.isArray(data) && data.length > 0) {
+      if (Array.isArray(data)) {
         setRequests(data);
       }
-    } catch {
-      // Retain fallback data
+    } catch (err) {
+      console.warn('[AdminRequests] Failed to fetch requests from server:', err);
     } finally {
       setLoading(false);
     }
@@ -122,6 +123,22 @@ export const AdminRequestsPage = () => {
 
   useEffect(() => {
     fetchRequests();
+    adminAPI.getDonors({ limit: 50 }).then((res) => {
+      const data = res.data?.data || res.data?.donors;
+      if (Array.isArray(data) && data.length > 0) {
+        const formatted = data.map((d) => ({
+          id: d.user?._id || d.user || d._id,
+          name: d.name || d.user?.name || 'Voluntary Donor',
+          bloodGroup: d.bloodGroup || 'O+',
+          phone: d.phone || d.user?.phone || '+91 98000 00000',
+          distanceKm: d.distanceKm || 2.5,
+        }));
+        setDonorsList(formatted);
+        if (formatted[0]) {
+          setSelectedDonorId(formatted[0].id);
+        }
+      }
+    }).catch(() => {});
   }, []);
 
   // 1. Open Assign Donor Modal
@@ -134,7 +151,7 @@ export const AdminRequestsPage = () => {
     e.preventDefault();
     if (!selectedReqToAssign) return;
 
-    const chosenDonor = COMPATIBLE_DONORS_MOCK.find((d) => d.id === selectedDonorId);
+    const chosenDonor = donorsList.find((d) => d.id === selectedDonorId) || { name: 'Assigned Donor', phone: '' };
 
     setIsAssigning(true);
     try {
@@ -142,34 +159,11 @@ export const AdminRequestsPage = () => {
         donorId: selectedDonorId,
       });
 
-      setRequests((prev) =>
-        prev.map((r) =>
-          r._id === selectedReqToAssign._id
-            ? {
-                ...r,
-                status: 'DONOR_ASSIGNED',
-                assignedDonor: { name: chosenDonor.name, phone: chosenDonor.phone },
-              }
-            : r
-        )
-      );
-
-      toast.success(`Donor ${chosenDonor.name} assigned to request ${selectedReqToAssign._id}.`);
+      toast.success(`Donor assigned to request ${selectedReqToAssign._id}.`);
       setAssignModalOpen(false);
-    } catch {
-      setRequests((prev) =>
-        prev.map((r) =>
-          r._id === selectedReqToAssign._id
-            ? {
-                ...r,
-                status: 'DONOR_ASSIGNED',
-                assignedDonor: { name: chosenDonor.name, phone: chosenDonor.phone },
-              }
-            : r
-        )
-      );
-      toast.success(`Donor ${chosenDonor.name} assigned.`);
-      setAssignModalOpen(false);
+      await fetchRequests();
+    } catch (err) {
+      toast.error(err.response?.data?.message || err.message || 'Failed to assign donor.');
     } finally {
       setIsAssigning(false);
     }
@@ -190,23 +184,11 @@ export const AdminRequestsPage = () => {
     setIsUpdatingStatus(true);
     try {
       await adminAPI.changeRequestStatus(selectedReqForStatus._id, { status: newStatus });
-
-      setRequests((prev) =>
-        prev.map((r) =>
-          r._id === selectedReqForStatus._id ? { ...r, status: newStatus } : r
-        )
-      );
-
       toast.success(`Request status updated to ${newStatus}.`);
       setStatusModalOpen(false);
-    } catch {
-      setRequests((prev) =>
-        prev.map((r) =>
-          r._id === selectedReqForStatus._id ? { ...r, status: newStatus } : r
-        )
-      );
-      toast.success(`Status updated to ${newStatus}.`);
-      setStatusModalOpen(false);
+      await fetchRequests();
+    } catch (err) {
+      toast.error(err.response?.data?.message || err.message || 'Failed to update status.');
     } finally {
       setIsUpdatingStatus(false);
     }
@@ -382,7 +364,7 @@ export const AdminRequestsPage = () => {
 
             <Select
               label="Select Compatible Voluntary Donor"
-              options={COMPATIBLE_DONORS_MOCK.map((d) => ({
+              options={donorsList.map((d) => ({
                 value: d.id,
                 label: `${d.name} (${d.bloodGroup}) • ${d.distanceKm} km away • ${d.phone}`,
               }))}

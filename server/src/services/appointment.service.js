@@ -447,12 +447,24 @@ export const getBankAppointments = async (userId, userRole, {
 }) => {
   let bank = null;
 
-  if (bloodBankId && (userRole === 'ADMIN' || userRole === 'BLOOD_BANK')) {
-    bank = await BloodBank.findById(bloodBankId);
-  }
-
-  if (!bank && userRole === 'BLOOD_BANK') {
+  if (userRole === 'ADMIN') {
+    if (bloodBankId) {
+      bank = await BloodBank.findById(bloodBankId);
+    } else {
+      bank = await BloodBank.findOne();
+    }
+  } else if (userRole === 'BLOOD_BANK') {
     bank = await BloodBank.findOne({ $or: [{ user: userId }, { createdBy: userId }] });
+    if (!bank) {
+      const userDoc = await User.findById(userId).select('bloodBank facilityId bloodBankId');
+      const bId = userDoc?.bloodBank || userDoc?.bloodBankId || userDoc?.facilityId;
+      if (bId) bank = await BloodBank.findById(bId);
+    }
+    if (bank && bloodBankId && bank._id.toString() !== bloodBankId.toString()) {
+      const err = new Error('Access denied. You can only view appointments for your own blood bank facility.');
+      err.statusCode = 403;
+      throw err;
+    }
   }
 
   if (!bank) {
@@ -469,7 +481,11 @@ export const getBankAppointments = async (userId, userRole, {
   }
 
   if (status && status !== 'ALL') {
-    query.status = status;
+    if (status === 'CONFIRMED' || status === 'UPCOMING') {
+      query.status = { $in: ['BOOKED', 'RESCHEDULED', 'SCHEDULED'] };
+    } else {
+      query.status = status;
+    }
   }
 
   const pageNum = Math.max(1, parseInt(page, 10) || 1);
@@ -478,7 +494,7 @@ export const getBankAppointments = async (userId, userRole, {
 
   const [appointments, total] = await Promise.all([
     Appointment.find(query)
-      .populate('donor', 'name email phone bloodGroup gender dob')
+      .populate('donor', 'name email phone mobile bloodGroup gender dob')
       .populate('donation')
       .sort({ slotDate: 1, slotTime: 1 })
       .skip(skip)
@@ -486,13 +502,45 @@ export const getBankAppointments = async (userId, userRole, {
     Appointment.countDocuments(query),
   ]);
 
+  const formattedAppointments = appointments.map((apt) => {
+    return apt.toObject ? apt.toObject() : { ...apt };
+  });
+
+  const donorIdsWithNoBloodGroup = formattedAppointments
+    .filter((a) => a.donor && !a.donor.bloodGroup)
+    .map((a) => a.donor._id);
+
+  if (donorIdsWithNoBloodGroup.length > 0) {
+    const profiles = await DonorProfile.find({
+      $or: [
+        { user: { $in: donorIdsWithNoBloodGroup } },
+        { userId: { $in: donorIdsWithNoBloodGroup } },
+      ],
+    }).select('user userId bloodGroup');
+
+    const profileMap = new Map();
+    profiles.forEach((p) => {
+      const uid = (p.user || p.userId)?.toString();
+      if (uid && p.bloodGroup) profileMap.set(uid, p.bloodGroup);
+    });
+
+    formattedAppointments.forEach((a) => {
+      if (a.donor && !a.donor.bloodGroup) {
+        const bg = profileMap.get(a.donor._id?.toString());
+        if (bg) {
+          a.donor.bloodGroup = bg;
+        }
+      }
+    });
+  }
+
   return {
     bloodBank: {
       id: bank._id,
       name: bank.name,
       city: bank.city,
     },
-    appointments,
+    appointments: formattedAppointments,
     pagination: {
       total,
       page: pageNum,
@@ -541,8 +589,16 @@ export const completeAppointment = async (appointmentId, userId, userRole, {
   const isBankOwner = bank?.user?.toString() === userId.toString();
   const isAdmin = userRole === 'ADMIN';
 
-  if (!isBankOwner && !isAdmin && userRole !== 'BLOOD_BANK') {
-    const err = new Error('Access denied. Only authorized blood bank personnel can complete appointments.');
+  let isAuthorizedBank = isBankOwner || isAdmin;
+  if (!isAuthorizedBank && userRole === 'BLOOD_BANK') {
+    const userBank = await BloodBank.findOne({ $or: [{ user: userId }, { createdBy: userId }] });
+    if (userBank && bank && userBank._id.toString() === bank._id.toString()) {
+      isAuthorizedBank = true;
+    }
+  }
+
+  if (!isAuthorizedBank) {
+    const err = new Error('Access denied. Only authorized blood bank personnel can complete appointments for this facility.');
     err.statusCode = 403;
     throw err;
   }
@@ -763,6 +819,25 @@ export const markAppointmentNoShow = async (appointmentId, userId, userRole) => 
   if (['COMPLETED', 'CANCELLED'].includes(appointment.status)) {
     const err = new Error(`Cannot mark appointment as NO_SHOW because it is already ${appointment.status}.`);
     err.statusCode = 400;
+    throw err;
+  }
+
+  // Permission: BLOOD_BANK of that bank or ADMIN
+  const bank = appointment.bloodBank;
+  const isBankOwner = bank?.user?.toString() === userId.toString();
+  const isAdmin = userRole === 'ADMIN';
+
+  let isAuthorizedBank = isBankOwner || isAdmin;
+  if (!isAuthorizedBank && userRole === 'BLOOD_BANK') {
+    const userBank = await BloodBank.findOne({ $or: [{ user: userId }, { createdBy: userId }] });
+    if (userBank && bank && userBank._id.toString() === bank._id.toString()) {
+      isAuthorizedBank = true;
+    }
+  }
+
+  if (!isAuthorizedBank) {
+    const err = new Error('Access denied. Only authorized blood bank personnel can mark appointments as NO_SHOW for this facility.');
+    err.statusCode = 403;
     throw err;
   }
 

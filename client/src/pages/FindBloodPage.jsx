@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   Search,
   Users,
@@ -15,8 +15,9 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { searchAPI } from '../services/api';
-import { Button, Input, Select, StatusBadge, Loader, EmptyState } from '../components/common';
+import { searchAPI, requestAPI } from '../services/api';
+import { useAuth } from '../context/AuthContext';
+import { Button, Input, Select, StatusBadge, Loader, EmptyState, Modal } from '../components/common';
 
 const BLOOD_GROUPS = [
   { value: '', label: 'All Blood Types' },
@@ -101,6 +102,8 @@ const FALLBACK_BANKS = [
 ];
 
 export const FindBloodPage = () => {
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('donors'); // 'donors' | 'banks'
   const [bloodGroup, setBloodGroup] = useState('');
   const [city, setCity] = useState('Mumbai');
@@ -109,6 +112,78 @@ export const FindBloodPage = () => {
   const [donors, setDonors] = useState(FALLBACK_DONORS);
   const [bloodBanks, setBloodBanks] = useState(FALLBACK_BANKS);
   const [loading, setLoading] = useState(false);
+
+  // Request Blood Modal State
+  const [requestModalOpen, setRequestModalOpen] = useState(false);
+  const [selectedDonor, setSelectedDonor] = useState(null);
+  const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
+  const [requestForm, setRequestForm] = useState({
+    patientName: '',
+    bloodGroup: 'O+',
+    units: 1,
+    urgency: 'URGENT',
+    hospitalName: '',
+    city: 'Mumbai',
+    contactNumber: '',
+    notes: '',
+  });
+
+  const handleOpenRequestModal = (donor) => {
+    setSelectedDonor(donor);
+    setRequestForm({
+      patientName: '',
+      bloodGroup: donor.bloodGroup || 'O+',
+      units: 1,
+      urgency: 'URGENT',
+      hospitalName: '',
+      city: donor.user?.city || city || user?.city || 'Mumbai',
+      contactNumber: user?.phone || user?.mobile || '',
+      notes: '',
+    });
+    setRequestModalOpen(true);
+  };
+
+  const handleRequestSubmit = async (e) => {
+    e.preventDefault();
+    if (!requestForm.patientName.trim()) {
+      toast.error('Patient name is required.');
+      return;
+    }
+    if (!requestForm.city.trim()) {
+      toast.error('City is required.');
+      return;
+    }
+
+    setIsSubmittingRequest(true);
+    try {
+      const payload = {
+        donorId: selectedDonor?._id || selectedDonor?.id,
+        targetedDonor: selectedDonor?._id || selectedDonor?.id,
+        patientName: requestForm.patientName.trim(),
+        bloodGroup: requestForm.bloodGroup,
+        units: Math.max(1, Number(requestForm.units) || 1),
+        urgency: requestForm.urgency,
+        hospitalName: requestForm.hospitalName.trim() || undefined,
+        city: requestForm.city.trim(),
+        contactNumber: requestForm.contactNumber.trim() || undefined,
+        contactPhone: requestForm.contactNumber.trim() || undefined,
+        notes: requestForm.notes.trim() || undefined,
+      };
+
+      const res = await requestAPI.create(payload);
+      toast.success(
+        res.data?.message || 'Blood request submitted successfully! Targeted donor notified.'
+      );
+      setRequestModalOpen(false);
+      navigate('/requests');
+    } catch (err) {
+      toast.error(
+        err.response?.data?.message || err.message || 'Failed to submit blood request.'
+      );
+    } finally {
+      setIsSubmittingRequest(false);
+    }
+  };
 
   // Search API fetch
   const handleSearch = useCallback(async () => {
@@ -321,15 +396,14 @@ export const FindBloodPage = () => {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <Link to={`/requests?donorId=${d._id}&bloodGroup=${encodeURIComponent(d.bloodGroup)}`}>
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        rightIcon={<ArrowRight className="w-3.5 h-3.5" />}
-                      >
-                        Request Blood
-                      </Button>
-                    </Link>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => handleOpenRequestModal(d)}
+                      rightIcon={<ArrowRight className="w-3.5 h-3.5" />}
+                    >
+                      Request Blood
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -400,6 +474,150 @@ export const FindBloodPage = () => {
           </div>
         )
       )}
+      {/* Request Blood Direct Modal */}
+      <Modal
+        isOpen={requestModalOpen}
+        onClose={() => setRequestModalOpen(false)}
+        title="Direct Blood Requisition"
+        subtitle={
+          selectedDonor
+            ? `Request blood directly from ${selectedDonor.user?.name || 'Voluntary Donor'} (${selectedDonor.bloodGroup})`
+            : 'Submit requisition details'
+        }
+        size="md"
+      >
+        <form onSubmit={handleRequestSubmit} className="space-y-4 pt-2">
+          {selectedDonor && (
+            <div className="p-3.5 rounded-2xl bg-red-50/70 border border-red-100 flex items-center justify-between text-xs">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#991B1B] to-[#C62828] text-white font-black flex items-center justify-center shadow-sm">
+                  {selectedDonor.bloodGroup}
+                </div>
+                <div>
+                  <p className="font-black text-slate-900">{selectedDonor.user?.name || 'Voluntary Donor'}</p>
+                  <p className="text-slate-500 font-medium flex items-center gap-1">
+                    <MapPin className="w-3 h-3 text-slate-400" />
+                    {selectedDonor.user?.city || city}
+                  </p>
+                </div>
+              </div>
+              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-md">
+                Available Donor
+              </span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <Select
+              label="Blood Group Required"
+              value={requestForm.bloodGroup}
+              onChange={(e) => setRequestForm((prev) => ({ ...prev, bloodGroup: e.target.value }))}
+              options={BLOOD_GROUPS.filter((g) => g.value !== '')}
+              required
+            />
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                Units Needed *
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="10"
+                value={requestForm.units}
+                onChange={(e) =>
+                  setRequestForm((prev) => ({
+                    ...prev,
+                    units: Math.max(1, parseInt(e.target.value, 10) || 1),
+                  }))
+                }
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-red-500 text-sm font-semibold"
+                required
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <Input
+              label="Patient Full Name *"
+              placeholder="e.g. Ramesh Kumar"
+              value={requestForm.patientName}
+              onChange={(e) => setRequestForm((prev) => ({ ...prev, patientName: e.target.value }))}
+              required
+            />
+
+            <Select
+              label="Clinical Urgency *"
+              value={requestForm.urgency}
+              onChange={(e) => setRequestForm((prev) => ({ ...prev, urgency: e.target.value }))}
+              options={[
+                { value: 'ROUTINE', label: 'Routine (Scheduled Surgery)' },
+                { value: 'URGENT', label: 'Urgent (Within 6–12 Hours)' },
+                { value: 'CRITICAL', label: 'Critical SOS (Immediate Emergency)' },
+              ]}
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <Input
+              label="Hospital / Clinic Name"
+              placeholder="e.g. Apollo Hospital"
+              value={requestForm.hospitalName}
+              onChange={(e) => setRequestForm((prev) => ({ ...prev, hospitalName: e.target.value }))}
+            />
+
+            <Input
+              label="City / District *"
+              placeholder="e.g. Mumbai"
+              value={requestForm.city}
+              onChange={(e) => setRequestForm((prev) => ({ ...prev, city: e.target.value }))}
+              required
+            />
+          </div>
+
+          <Input
+            label="Contact Phone Number"
+            placeholder="e.g. +91 98765 43210"
+            value={requestForm.contactNumber}
+            onChange={(e) => setRequestForm((prev) => ({ ...prev, contactNumber: e.target.value }))}
+          />
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+              Clinical Reason / Notes
+            </label>
+            <textarea
+              rows={2}
+              placeholder="Reason for transfusion, ward number, attending doctor..."
+              value={requestForm.notes}
+              onChange={(e) => setRequestForm((prev) => ({ ...prev, notes: e.target.value }))}
+              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-red-500 text-sm font-medium"
+            />
+          </div>
+
+          <div className="pt-2 flex items-center justify-end gap-2.5">
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              onClick={() => setRequestModalOpen(false)}
+              disabled={isSubmittingRequest}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="md"
+              isLoading={isSubmittingRequest}
+              rightIcon={<ArrowRight className="w-4 h-4" />}
+            >
+              Confirm & Request Blood
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 };

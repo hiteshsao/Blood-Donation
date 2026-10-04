@@ -123,8 +123,8 @@ export const BloodRequestsPage = () => {
     setLoading(true);
     try {
       const res = await requestAPI.getMyRequests();
-      const data = res.data?.data || res.data?.requests || res.data;
-      if (Array.isArray(data) && data.length > 0) {
+      const data = res.data?.requests || res.data?.data || res.data;
+      if (Array.isArray(data)) {
         setMyRequests(data);
       }
     } catch {
@@ -137,6 +137,18 @@ export const BloodRequestsPage = () => {
   useEffect(() => {
     fetchMyRequests();
   }, []);
+
+  useEffect(() => {
+    if (searchParams.get('create')) {
+      setActiveTab('create');
+    }
+    if (searchParams.get('bloodGroup')) {
+      setFormData((prev) => ({
+        ...prev,
+        bloodGroup: searchParams.get('bloodGroup'),
+      }));
+    }
+  }, [searchParams]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -159,7 +171,10 @@ export const BloodRequestsPage = () => {
         urgency: formData.urgency,
         hospitalName: formData.hospitalName,
         city: formData.city,
+        contactNumber: formData.contactPhone,
         contactPhone: formData.contactPhone,
+        donorId: searchParams.get('donorId') || undefined,
+        targetedDonor: searchParams.get('donorId') || undefined,
         requiredBy: formData.requiredBy || undefined,
         notes: formData.notes,
       };

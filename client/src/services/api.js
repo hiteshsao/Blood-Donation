@@ -28,7 +28,11 @@ const processQueue = (error, token = null) => {
 // Request Interceptor: Attach JWT Bearer Token
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('lifedrop_access_token') || localStorage.getItem('bloodlink_access_token');
+    const token =
+      localStorage.getItem('accessToken') ||
+      localStorage.getItem('lifedrop_access_token') ||
+      localStorage.getItem('bloodlink_access_token') ||
+      localStorage.getItem('token');
     if (token) {
       config.headers['Authorization'] = `Bearer ${token}`;
     }
@@ -244,17 +248,37 @@ export const adminAPI = {
 
   // Inventory
   getInventory: (params) => api.get('/v1/admin/inventory', { params }),
+  getAllInventory: (params) => api.get('/v1/admin/inventory', { params }),
   getLowStock: () => api.get('/v1/admin/inventory/low-stock'),
-  overrideStock: (bankId, group, data) =>
-    api.put(`/v1/admin/inventory/${bankId}/${encodeURIComponent(group)}`, data),
+  overrideStock: (bankId, groupOrData, maybeData) => {
+    if (typeof groupOrData === 'object' && groupOrData !== null) {
+      const group = groupOrData.bloodGroup || 'O+';
+      return api.put(`/v1/admin/inventory/${bankId}/${encodeURIComponent(group)}`, groupOrData);
+    }
+    return api.put(`/v1/admin/inventory/${bankId}/${encodeURIComponent(groupOrData)}`, maybeData);
+  },
 
   // Requests
   getRequests: (params) => api.get('/v1/admin/requests', { params }),
   approveRequest: (id, note) => api.put(`/v1/admin/requests/${id}/approve`, { note }),
   rejectRequest: (id, reason) => api.put(`/v1/admin/requests/${id}/reject`, { reason }),
-  assignDonor: (id, donorId) => api.put(`/v1/admin/requests/${id}/assign`, { donorId }),
-  changeRequestStatus: (id, status, note) =>
-    api.put(`/v1/admin/requests/${id}/status`, { status, note }),
+  assignDonor: (id, donorIdOrData) => {
+    const donorId = typeof donorIdOrData === 'object' && donorIdOrData !== null ? donorIdOrData.donorId : donorIdOrData;
+    return api.put(`/v1/admin/requests/${id}/assign`, { donorId });
+  },
+  assignDonorToRequest: (id, donorIdOrData) => {
+    const donorId = typeof donorIdOrData === 'object' && donorIdOrData !== null ? donorIdOrData.donorId : donorIdOrData;
+    return api.put(`/v1/admin/requests/${id}/assign`, { donorId });
+  },
+  changeRequestStatus: (id, statusOrData, note) => {
+    if (typeof statusOrData === 'object' && statusOrData !== null) {
+      return api.put(`/v1/admin/requests/${id}/status`, {
+        status: statusOrData.status,
+        note: statusOrData.note || '',
+      });
+    }
+    return api.put(`/v1/admin/requests/${id}/status`, { status: statusOrData, note: note || '' });
+  },
 
   // Emergency
   getLiveEmergencies: () => api.get('/v1/admin/emergency/live'),

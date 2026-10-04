@@ -105,12 +105,38 @@ export const AdminInventoryPage = () => {
     setLoading(true);
     try {
       const res = await adminAPI.getAllInventory();
-      const data = res.data?.data || res.data?.inventory || res.data;
-      if (Array.isArray(data) && data.length > 0) {
-        setInventory(data);
+      const rawData = res.data?.data || res.data?.inventory || res.data;
+      if (Array.isArray(rawData)) {
+        const flatList = [];
+        rawData.forEach((item, index) => {
+          if (item.groups && typeof item.groups === 'object') {
+            const b = item.bloodBank || {};
+            Object.entries(item.groups).forEach(([bg, gData]) => {
+              const avail = gData.available ?? 0;
+              const thresh = gData.threshold || 5;
+              flatList.push({
+                _id: `${b._id || index}-${bg}`,
+                bankId: b._id,
+                bankName: b.name || 'Blood Bank Center',
+                city: b.city || 'Mumbai',
+                bloodGroup: bg,
+                availableUnits: avail,
+                reservedUnits: gData.reserved ?? 0,
+                threshold: thresh,
+                status: avail <= 2 ? 'CRITICAL' : avail <= thresh ? 'LOW' : 'ADEQUATE',
+                lastUpdated: 'Live Database',
+              });
+            });
+          } else {
+            flatList.push(item);
+          }
+        });
+        if (flatList.length > 0) {
+          setInventory(flatList);
+        }
       }
-    } catch {
-      // Retain fallback data
+    } catch (err) {
+      console.warn('[AdminInventory] Fetch failed:', err);
     } finally {
       setLoading(false);
     }
@@ -146,37 +172,18 @@ export const AdminInventoryPage = () => {
       await adminAPI.overrideStock(selectedRecord.bankId || selectedRecord._id, {
         bloodGroup: selectedRecord.bloodGroup,
         units: finalCount,
+        available: finalCount,
+        action: 'SET',
         reason: overrideForm.auditReason,
       });
-
-      // Update state locally
-      setInventory((prev) =>
-        prev.map((item) =>
-          item._id === selectedRecord._id
-            ? {
-                ...item,
-                availableUnits: finalCount,
-                status: finalCount <= item.threshold ? 'CRITICAL' : 'ADEQUATE',
-                lastUpdated: 'Just now (Admin Override)',
-              }
-            : item
-        )
-      );
 
       toast.success(
         `Stock overridden for ${selectedRecord.bankName} (${selectedRecord.bloodGroup}): ${finalCount} Units.`
       );
       setModalOpen(false);
-    } catch {
-      toast.success(`Inventory stock count updated.`);
-      setInventory((prev) =>
-        prev.map((item) =>
-          item._id === selectedRecord._id
-            ? { ...item, availableUnits: Number(overrideForm.units), lastUpdated: 'Just now' }
-            : item
-        )
-      );
-      setModalOpen(false);
+      await fetchInventory();
+    } catch (err) {
+      toast.error(err.response?.data?.message || err.message || 'Failed to override stock.');
     } finally {
       setIsSubmitting(false);
     }

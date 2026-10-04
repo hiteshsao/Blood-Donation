@@ -180,7 +180,7 @@ router.post(
  *       200:
  *         description: Donor appointments list returned
  */
-router.get('/my', authenticate, getMy);
+router.get('/my', authenticate, authorize('USER', 'DONOR', 'ADMIN'), getMy);
 
 /**
  * @swagger

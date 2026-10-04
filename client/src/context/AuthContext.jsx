@@ -198,38 +198,12 @@ export const AuthProvider = ({ children }) => {
       saveUserSession(loggedUser, { accessToken, refreshToken });
       return { success: true, user: loggedUser };
     } catch (err) {
-      // Demo Fallback for known demo emails if backend is unreachable
-      const lower = (email || '').toLowerCase().trim();
-      let matchedDemo = null;
-
-      if (lower === 'admin@lifedrop.org' || lower.includes('admin')) {
-        matchedDemo = { role: 'admin', data: DEMO_USERS.admin };
-      } else if (lower.includes('oneg') || lower.includes('donor')) {
-        matchedDemo = { role: 'donor', data: DEMO_USERS.donor };
-      } else if (lower.includes('doctor') || lower.includes('hospital')) {
-        matchedDemo = { role: 'hospital', data: DEMO_USERS.hospital };
-      } else if (lower.includes('bloodbank') || lower.includes('redcross')) {
-        matchedDemo = { role: 'bloodbank', data: DEMO_USERS.bloodbank };
-      } else if (!err.response) {
-        // Backend offline fallback
-        matchedDemo = {
-          role: 'user',
-          data: {
-            ...DEMO_USERS.user,
-            email,
-            name: email.split('@')[0],
-          },
-        };
-      }
-
-      if (matchedDemo) {
-        const demoToken = `demo_token_${matchedDemo.role}`;
-        saveUserSession(matchedDemo.data, { accessToken: demoToken, refreshToken: 'demo_refresh' });
-        return { success: true, user: matchedDemo.data, isDemo: true };
-      }
-
       const msg = err.response?.data?.message || err.message || 'Login failed. Please check credentials.';
-      throw new Error(msg);
+      const error = new Error(msg);
+      error.response = err.response;
+      error.requiresVerification = err.response?.data?.requiresVerification;
+      error.email = err.response?.data?.email;
+      throw error;
     } finally {
       setLoading(false);
     }

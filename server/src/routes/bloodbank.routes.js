@@ -10,6 +10,7 @@ import {
   updateGroupStock,
   recordDonation,
   issueUnits,
+  getRequests,
   getHistory,
 } from '../controllers/bloodbank.controller.js';
 
@@ -176,6 +177,20 @@ router.post(
   [body('requestId').isMongoId().withMessage('Valid requestId is required'), validateRequest],
   issueUnits
 );
+
+/**
+ * @swagger
+ * /api/v1/bloodbank/requests:
+ *   get:
+ *     summary: Retrieve blood requests eligible for blood bank unit issuance
+ *     tags: [BloodBank]
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of eligible blood requests
+ */
+router.get('/requests', getRequests);
 
 /**
  * @swagger

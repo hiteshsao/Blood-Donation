@@ -126,7 +126,19 @@ router.post(
   confirmReceived
 );
 
+router.put(
+  '/requests/:id/confirm-received',
+  [param('id').isMongoId().withMessage('Valid request ID is required'), validateRequest],
+  confirmReceived
+);
+
 router.post(
+  '/confirm-received',
+  [body('requestId').isMongoId().withMessage('Valid request ID is required'), validateRequest],
+  confirmReceived
+);
+
+router.put(
   '/confirm-received',
   [body('requestId').isMongoId().withMessage('Valid request ID is required'), validateRequest],
   confirmReceived

@@ -158,24 +158,18 @@ export const confirmUnitsReceived = async (hospitalId, requestId, userId, detail
     throw err;
   }
 
-  // Ensure request is associated with this hospital or requester
-  const isLinkedHospital =
-    request.hospital && request.hospital.toString() === hospitalId.toString();
-  const isRequester =
-    request.requester && request.requester.toString() === userId.toString();
-
-  if (!isLinkedHospital && !isRequester) {
-    const err = new Error('Forbidden: You are not authorized to confirm units for this request.');
+  // Ensure request is associated with a hospital (not a purely regular user request)
+  if (!request.hospital) {
+    const err = new Error('Forbidden: Only hospital-associated requests can have receipt confirmed.');
     err.statusCode = 403;
     throw err;
   }
 
-  if (request.status === 'FULFILLED') {
-    return {
-      alreadyFulfilled: true,
-      request,
-      message: 'Request was already marked as FULFILLED.',
-    };
+  // Ensure request belongs to this specific hospital
+  if (request.hospital.toString() !== hospitalId.toString()) {
+    const err = new Error('Forbidden: You are not authorized to confirm units for this request.');
+    err.statusCode = 403;
+    throw err;
   }
 
   if (['REJECTED', 'CANCELLED'].includes(request.status)) {
@@ -186,6 +180,10 @@ export const confirmUnitsReceived = async (hospitalId, requestId, userId, detail
 
   const previousStatus = request.status;
   request.status = 'FULFILLED';
+  request.confirmedReceived = true;
+  request.confirmedAt = new Date();
+  request.confirmedBy = userId;
+
   request.statusHistory.push({
     status: 'FULFILLED',
     changedBy: userId,
@@ -214,12 +212,38 @@ export const confirmUnitsReceived = async (hospitalId, requestId, userId, detail
       },
     });
   } catch (notifErr) {
-    console.warn('[HospitalService] Notification failed:', notifErr.message);
+    console.warn('[HospitalService] Requester notification failed:', notifErr.message);
+  }
+
+  // Optionally notify issuing Blood Bank to close the loop
+  try {
+    const { BloodIssue, BloodBank } = await import('../models/index.js');
+    const recentIssue = await BloodIssue.findOne({ request: request._id }).sort({ issuedAt: -1 });
+    if (recentIssue && recentIssue.bloodBank) {
+      const bank = await BloodBank.findById(recentIssue.bloodBank);
+      if (bank && bank.user) {
+        await notify({
+          userId: bank.user,
+          type: 'REQUEST_COMPLETED',
+          title: 'Hospital Confirmed Blood Units Received! ✓',
+          message: `Hospital has confirmed receipt of ${request.units} unit(s) of ${request.bloodGroup} for patient ${request.patientName || ''}. Transfusion loop closed.`,
+          channels: ['IN_APP', 'EMAIL'],
+          meta: {
+            requestId: request._id,
+            bloodGroup: request.bloodGroup,
+            units: request.units,
+            hospitalId: request.hospital,
+          },
+        });
+      }
+    }
+  } catch (bbNotifErr) {
+    console.warn('[HospitalService] Blood bank notification failed:', bbNotifErr.message);
   }
 
   return {
     alreadyFulfilled: false,
     request,
-    message: 'Blood units received successfully and request marked as FULFILLED.',
+    message: 'Blood units received successfully and receipt confirmed.',
   };
 };

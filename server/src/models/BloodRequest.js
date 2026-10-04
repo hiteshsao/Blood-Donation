@@ -102,6 +102,7 @@ const BloodRequestSchema = new mongoose.Schema(
         'DONOR_ASSIGNED',
         'IN_PROGRESS',
         'FULFILLED',
+        'COMPLETED',
         'REJECTED',
         'CANCELLED',
         'MATCHING',
@@ -110,6 +111,25 @@ const BloodRequestSchema = new mongoose.Schema(
       ],
       default: 'PENDING',
       index: true,
+    },
+    unitsIssued: {
+      type: Number,
+      default: 0,
+      min: [0, 'Units issued cannot be negative'],
+    },
+    confirmedReceived: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    confirmedAt: {
+      type: Date,
+      default: null,
+    },
+    confirmedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
     },
     assignedDonors: [AssignedDonorSchema],
     matchedDonors: [AssignedDonorSchema], // alias

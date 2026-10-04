@@ -151,7 +151,7 @@ export const requestAPI = {
   getMyRequests: (params) => api.get('/v1/requests/my', { params }),
   getById: (id) => api.get(`/v1/requests/${id}`),
   cancel: (id, reason) => api.put(`/v1/requests/${id}/cancel`, { reason }),
-  confirmReceived: (id, data) => api.post(`/v1/requests/${id}/confirm-received`, data),
+  confirmReceived: (id, data) => api.put(`/v1/requests/${id}/confirm-received`, data),
 };
 
 // ── 6. EMERGENCY DISPATCH API (/api/v1/emergency) ──
@@ -195,8 +195,8 @@ export const hospitalAPI = {
       headers: { 'Content-Type': 'multipart/form-data' },
     }),
   getRequests: (params) => api.get('/v1/hospital/requests', { params }),
-  confirmReceived: (id, remarks) =>
-    api.post(`/v1/hospital/requests/${id}/confirm-received`, { remarks }),
+  confirmReceived: (id, data) =>
+    api.put(`/v1/requests/${id}/confirm-received`, typeof data === 'string' ? { remarks: data } : data),
 };
 
 // ── 10. BLOOD BANK API (/api/v1/bloodbank) ──
@@ -207,6 +207,7 @@ export const bloodBankAPI = {
   updateGroupStock: (group, data) =>
     api.put(`/v1/bloodbank/inventory/${encodeURIComponent(group)}`, data),
   recordDonation: (data) => api.post('/v1/bloodbank/donations', data),
+  getRequests: (params) => api.get('/v1/bloodbank/requests', { params }),
   issueUnits: (data) => api.post('/v1/bloodbank/issue', data),
   getHistory: (params) => api.get('/v1/bloodbank/history', { params }),
 };

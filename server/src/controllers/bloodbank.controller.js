@@ -115,6 +115,23 @@ export const issueUnits = async (req, res, next) => {
 };
 
 /**
+ * GET /api/v1/bloodbank/requests
+ * Get eligible blood requests available for issuing units
+ */
+export const getRequests = async (req, res, next) => {
+  try {
+    const requests = await bloodBankService.getEligibleRequests(req.bloodBank._id, req.query);
+    res.status(200).json({
+      success: true,
+      data: requests,
+      requests,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * GET /api/v1/bloodbank/history
  * Unified paginated timeline of donations and issued units
  */
@@ -129,3 +146,5 @@ export const getHistory = async (req, res, next) => {
     next(error);
   }
 };
+
+

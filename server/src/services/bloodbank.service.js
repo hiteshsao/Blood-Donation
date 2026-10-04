@@ -767,17 +767,32 @@ export const recordIssuedUnits = async (bloodBankId, issueData = {}, staffUserId
     );
     issueDoc = createdIssue;
 
-    // Update BloodRequest status to FULFILLED if not yet fulfilled
-    if (bloodRequest.status !== 'FULFILLED') {
+    // Compute total units issued against this request
+    const priorIssues = await BloodIssue.find({ request: requestId }).session(session);
+    const totalIssued = priorIssues.reduce((sum, item) => sum + (Number(item.units) || 0), 0);
+    bloodRequest.unitsIssued = totalIssued;
+
+    const requestedUnits = Number(bloodRequest.units) || 1;
+    const isNowFulfilled = totalIssued >= requestedUnits;
+
+    if (isNowFulfilled) {
       bloodRequest.status = 'FULFILLED';
       bloodRequest.statusHistory.push({
         status: 'FULFILLED',
         changedBy: staffUserId,
-        note: `Blood bank issued ${unitsCount} unit(s) of ${finalGroup}.`,
+        note: `Blood bank issued ${unitsCount} unit(s) of ${finalGroup}. All requested units fulfilled (${totalIssued}/${requestedUnits}).`,
         changedAt: new Date(),
       });
-      await bloodRequest.save({ session });
+    } else {
+      bloodRequest.status = 'IN_PROGRESS';
+      bloodRequest.statusHistory.push({
+        status: 'IN_PROGRESS',
+        changedBy: staffUserId,
+        note: `Partial issue: ${unitsCount} unit(s) of ${finalGroup} issued. Total fulfilled so far: ${totalIssued}/${requestedUnits}.`,
+        changedAt: new Date(),
+      });
     }
+    await bloodRequest.save({ session });
 
     // Stock audit log
     await InventoryStockLog.create(
@@ -834,16 +849,31 @@ export const recordIssuedUnits = async (bloodBankId, issueData = {}, staffUserId
         remarks: remarks || notes || `Issued ${unitsCount} units against request ${requestId}`,
       });
 
-      if (bloodRequest.status !== 'FULFILLED') {
+      const priorIssues = await BloodIssue.find({ request: requestId });
+      const totalIssued = priorIssues.reduce((sum, item) => sum + (Number(item.units) || 0), 0);
+      bloodRequest.unitsIssued = totalIssued;
+
+      const requestedUnits = Number(bloodRequest.units) || 1;
+      const isNowFulfilled = totalIssued >= requestedUnits;
+
+      if (isNowFulfilled) {
         bloodRequest.status = 'FULFILLED';
         bloodRequest.statusHistory.push({
           status: 'FULFILLED',
           changedBy: staffUserId,
-          note: `Blood bank issued ${unitsCount} unit(s) of ${finalGroup}.`,
+          note: `Blood bank issued ${unitsCount} unit(s) of ${finalGroup}. All requested units fulfilled (${totalIssued}/${requestedUnits}).`,
           changedAt: new Date(),
         });
-        await bloodRequest.save();
+      } else {
+        bloodRequest.status = 'IN_PROGRESS';
+        bloodRequest.statusHistory.push({
+          status: 'IN_PROGRESS',
+          changedBy: staffUserId,
+          note: `Partial issue: ${unitsCount} unit(s) of ${finalGroup} issued. Total fulfilled so far: ${totalIssued}/${requestedUnits}.`,
+          changedAt: new Date(),
+        });
       }
+      await bloodRequest.save();
     } else {
       throw transErr;
     }
@@ -853,20 +883,47 @@ export const recordIssuedUnits = async (bloodBankId, issueData = {}, staffUserId
 
   // Notify requester via universal notification service
   try {
-    await notify({
-      userId: bloodRequest.requester,
-      type: 'REQUEST_FULFILLED',
-      title: 'Blood Units Successfully Issued! 💉',
-      message: `${unitsCount} unit(s) of ${finalGroup} have been officially issued from the blood bank for patient ${bloodRequest.patientName || ''}.`,
-      channels: ['IN_APP', 'EMAIL'],
-      meta: {
-        requestId,
-        issueId: issueDoc._id,
-        bloodGroup: finalGroup,
-        units: unitsCount,
-        bloodBankId,
-      },
-    });
+    const isFulfilled = bloodRequest.status === 'FULFILLED';
+    const totalIssued = bloodRequest.unitsIssued || unitsCount;
+    const requestedUnits = Number(bloodRequest.units) || 1;
+
+    const notifPayload = isFulfilled
+      ? {
+          userId: bloodRequest.requester,
+          type: 'REQUEST_FULFILLED',
+          title: 'Blood Request Fulfilled! 🎉',
+          message: `Your blood request for ${finalGroup} has been fulfilled.`,
+          channels: ['IN_APP', 'EMAIL'],
+          meta: {
+            requestId: bloodRequest._id,
+            status: 'FULFILLED',
+            issueId: issueDoc._id,
+            bloodGroup: finalGroup,
+            unitsIssued: unitsCount,
+            totalIssued,
+            requestedUnits,
+            bloodBankId,
+          },
+        }
+      : {
+          userId: bloodRequest.requester,
+          type: 'REQUEST_PARTIALLY_FULFILLED',
+          title: 'Partial Blood Units Issued 🩸',
+          message: `${totalIssued} of ${requestedUnits} units fulfilled so far.`,
+          channels: ['IN_APP', 'EMAIL'],
+          meta: {
+            requestId: bloodRequest._id,
+            status: 'IN_PROGRESS',
+            issueId: issueDoc._id,
+            bloodGroup: finalGroup,
+            unitsIssued: unitsCount,
+            totalIssued,
+            requestedUnits,
+            bloodBankId,
+          },
+        };
+
+    await notify(notifPayload);
   } catch (notifErr) {
     console.warn('[BloodBankService] Issue notification error:', notifErr.message);
   }
@@ -874,7 +931,33 @@ export const recordIssuedUnits = async (bloodBankId, issueData = {}, staffUserId
   return {
     issue: issueDoc,
     inventory: inventoryDoc,
+    request: bloodRequest,
   };
+};
+
+/**
+ * Retrieve blood requests that are eligible for blood bank unit issuance.
+ * Statuses: APPROVED, DONOR_ASSIGNED, IN_PROGRESS
+ */
+export const getEligibleRequests = async (bloodBankId, queryParams = {}) => {
+  const { status, bloodGroup, limit = 50 } = queryParams;
+  const filter = {
+    status: status
+      ? status.toUpperCase()
+      : { $in: ['APPROVED', 'DONOR_ASSIGNED', 'IN_PROGRESS'] },
+  };
+
+  if (bloodGroup) {
+    filter.bloodGroup = bloodGroup.toUpperCase();
+  }
+
+  const requests = await BloodRequest.find(filter)
+    .populate('requester', 'name email phone')
+    .populate('hospital', 'name city address phone')
+    .sort({ urgency: -1, createdAt: -1 })
+    .limit(Math.min(100, Math.max(1, parseInt(limit, 10) || 50)));
+
+  return requests;
 };
 
 /**

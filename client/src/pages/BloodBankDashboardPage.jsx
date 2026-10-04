@@ -261,6 +261,29 @@ export const BloodBankDashboardPage = () => {
     fetchAppointments();
   }, [fetchAppointments]);
 
+  // Eligible Blood Requests State (for issuing units against requests)
+  const [requests, setRequests] = useState([]);
+  const [loadingRequests, setLoadingRequests] = useState(false);
+
+  const fetchEligibleRequests = useCallback(async () => {
+    setLoadingRequests(true);
+    try {
+      const res = await bloodBankAPI.getRequests();
+      const data = res.data?.data || res.data?.requests || res.data;
+      if (Array.isArray(data)) {
+        setRequests(data);
+      }
+    } catch (err) {
+      console.warn('[BloodBank] Failed to fetch eligible requests:', err.message);
+    } finally {
+      setLoadingRequests(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchEligibleRequests();
+  }, [fetchEligibleRequests]);
+
   // Record Donation State
   const [donationForm, setDonationForm] = useState({
     donorName: '',
@@ -283,9 +306,12 @@ export const BloodBankDashboardPage = () => {
 
   // Issue Units State
   const [issueForm, setIssueForm] = useState({
-    recipientHospital: 'Apollo City Hospital',
-    bloodGroup: 'O-',
+    requestId: '',
+    recipientHospital: '',
+    patientName: '',
+    bloodGroup: 'O+',
     units: 1,
+    maxUnitsAllowed: 10,
     component: 'PRBC',
     bagNo: '',
     issuedTo: '',
@@ -442,17 +468,46 @@ export const BloodBankDashboardPage = () => {
     }
   };
 
+  // Select request to issue against
+  const handleSelectRequest = (reqId) => {
+    const selected = requests.find((r) => r._id === reqId);
+    if (selected) {
+      const remaining = Math.max(1, (selected.units || 1) - (selected.unitsIssued || 0));
+      setIssueForm((prev) => ({
+        ...prev,
+        requestId: reqId,
+        bloodGroup: selected.bloodGroup,
+        units: remaining,
+        maxUnitsAllowed: remaining,
+        recipientHospital:
+          selected.hospitalName ||
+          selected.hospital?.name ||
+          (selected.hospital ? 'Associated Hospital' : 'Individual Requester'),
+        issuedTo: selected.patientName ? `Patient: ${selected.patientName}` : prev.issuedTo,
+        patientName: selected.patientName || '',
+      }));
+    } else {
+      setIssueForm((prev) => ({
+        ...prev,
+        requestId: '',
+        patientName: '',
+      }));
+    }
+  };
+
   // Submit Issue Units
   const handleIssueUnitsSubmit = async (e) => {
     e.preventDefault();
-    if (!issueForm.recipientHospital.trim()) {
-      toast.error('Recipient Hospital / Facility name is required.');
+    if (!issueForm.requestId) {
+      toast.error('Please select an active Blood Request to issue against.');
       return;
     }
 
     const targetGroup = inventory.find((i) => i.group === issueForm.bloodGroup);
     if (!targetGroup || targetGroup.available < Number(issueForm.units)) {
-      toast.error(`Insufficient ${issueForm.bloodGroup} units in inventory to issue.`);
+      toast.error(
+        `Insufficient ${issueForm.bloodGroup} units in inventory to issue (Available: ${targetGroup?.available || 0} U).`
+      );
       return;
     }
 
@@ -460,49 +515,31 @@ export const BloodBankDashboardPage = () => {
     try {
       const bagNumber = issueForm.bagNo.trim() || `PRBC-2026-${Date.now().toString().slice(-4)}`;
 
-      await bloodBankAPI.issueUnits({
-        recipient: issueForm.recipientHospital,
+      const res = await bloodBankAPI.issueUnits({
+        requestId: issueForm.requestId,
         bloodGroup: issueForm.bloodGroup,
         units: Number(issueForm.units),
         bagNo: bagNumber,
         issuedTo: issueForm.issuedTo,
+        remarks: issueForm.remarks,
       });
 
-      // Decrement stock locally
-      setInventory((prev) =>
-        prev.map((item) =>
-          item.group === issueForm.bloodGroup
-            ? { ...item, available: Math.max(0, item.available - Number(issueForm.units)), lastUpdated: 'Just now' }
-            : item
-        )
-      );
-
-      // Append to History
-      const newHist = {
-        _id: `hist-${Date.now()}`,
-        type: 'ISSUE',
-        bloodGroup: issueForm.bloodGroup,
-        units: Number(issueForm.units),
-        bagNo: bagNumber,
-        entityName: issueForm.recipientHospital,
-        issuedTo: issueForm.issuedTo || 'Hospital Transport Service',
-        phlebotomist: user?.name || 'Chief Technical Officer',
-        timestamp: new Date().toISOString(),
-        status: 'DISPATCHED',
-        fridgeId: 'Cold-Box In Transit',
-      };
-      setHistory([newHist, ...history]);
+      // Refetch inventory immediately from server
+      await fetchInventory();
+      // Refetch eligible requests
+      await fetchEligibleRequests();
 
       toast.success(
-        `Successfully issued ${issueForm.units} unit(s) of ${issueForm.bloodGroup} to ${issueForm.recipientHospital}.`
+        res.data?.message || `Successfully issued ${issueForm.units} unit(s) of ${issueForm.bloodGroup}!`
       );
 
-      await fetchInventory();
-
       setIssueForm({
-        recipientHospital: 'Apollo City Hospital',
-        bloodGroup: 'O-',
+        requestId: '',
+        recipientHospital: '',
+        patientName: '',
+        bloodGroup: 'O+',
         units: 1,
+        maxUnitsAllowed: 10,
         component: 'PRBC',
         bagNo: '',
         issuedTo: '',
@@ -512,8 +549,8 @@ export const BloodBankDashboardPage = () => {
       });
 
       handleTabChange('inventory');
-    } catch {
-      toast.error('Failed to record unit dispatch.');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to issue units.');
     } finally {
       setIsIssuingUnits(false);
     }
@@ -1024,14 +1061,27 @@ export const BloodBankDashboardPage = () => {
                       </td>
 
                       <td className="p-4 text-right">
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          onClick={() => handleOpenEditStock(item)}
-                          leftIcon={<Edit className="w-3.5 h-3.5" />}
-                        >
-                          Edit Stock
-                        </Button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button
+                            variant="secondary"
+                            size="xs"
+                            onClick={() => {
+                              setIssueForm((prev) => ({ ...prev, bloodGroup: item.group }));
+                              handleTabChange('issue-units');
+                            }}
+                            leftIcon={<Send className="w-3 h-3" />}
+                          >
+                            Issue
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            onClick={() => handleOpenEditStock(item)}
+                            leftIcon={<Edit className="w-3.5 h-3.5" />}
+                          >
+                            Edit
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -1191,8 +1241,64 @@ export const BloodBankDashboardPage = () => {
 
           <form onSubmit={handleIssueUnitsSubmit} className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                  Select Blood Request to Issue Against <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={issueForm.requestId}
+                  onChange={(e) => handleSelectRequest(e.target.value)}
+                  required
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#C62828] focus:border-transparent font-medium"
+                >
+                  <option value="">-- Choose an active blood request --</option>
+                  {requests.map((r) => {
+                    const remaining = Math.max(1, (r.units || 1) - (r.unitsIssued || 0));
+                    return (
+                      <option key={r._id} value={r._id}>
+                        [{r.bloodGroup}] {r.patientName} • Needs {remaining} of {r.units} U ({r.urgency || 'ROUTINE'}) • {r.hospitalName || r.hospital?.name || 'Individual'} ({r.city})
+                      </option>
+                    );
+                  })}
+                </select>
+                {loadingRequests && (
+                  <p className="text-[11px] text-slate-400 mt-1">Loading blood requests...</p>
+                )}
+                {!loadingRequests && requests.length === 0 && (
+                  <p className="text-[11px] text-amber-600 mt-1 font-medium">
+                    No active requests found in queue. You can select one when re-fetched.
+                  </p>
+                )}
+              </div>
+
+              {issueForm.requestId && (() => {
+                const selReq = requests.find((r) => r._id === issueForm.requestId);
+                if (!selReq) return null;
+                const remaining = Math.max(1, (selReq.units || 1) - (selReq.unitsIssued || 0));
+                const availableStock = inventory.find((i) => i.group === selReq.bloodGroup)?.available || 0;
+                const hasEnough = availableStock >= Number(issueForm.units);
+
+                return (
+                  <div className="sm:col-span-2 p-4 rounded-2xl bg-red-50/60 border border-red-200/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+                    <div>
+                      <span className="font-black text-slate-900 text-sm">
+                        Patient: {selReq.patientName} ({selReq.bloodGroup})
+                      </span>
+                      <p className="text-slate-600 mt-0.5">
+                        Total Needed: <strong>{selReq.units} U</strong> • Issued So Far: <strong>{selReq.unitsIssued || 0} U</strong> • Remaining Needed: <strong>{remaining} U</strong>
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className={`inline-block px-3 py-1 rounded-xl font-bold text-xs ${hasEnough ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'}`}>
+                        {availableStock} Units In Stock
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <Input
-                label="Recipient Hospital / Clinic"
+                label="Recipient Hospital / Facility"
                 required
                 placeholder="e.g. Apollo City Hospital Emergency"
                 value={issueForm.recipientHospital}
@@ -1214,7 +1320,7 @@ export const BloodBankDashboardPage = () => {
                 label="Units to Dispense"
                 type="number"
                 min="1"
-                max="10"
+                max={issueForm.maxUnitsAllowed || 10}
                 required
                 value={issueForm.units}
                 onChange={(e) => setIssueForm({ ...issueForm, units: e.target.value })}

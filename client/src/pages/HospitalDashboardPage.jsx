@@ -331,7 +331,7 @@ export const HospitalDashboardPage = () => {
       });
 
       toast.success(
-        `Units confirmed received! Request ${selectedReqToConfirm._id} marked as FULFILLED.`
+        `Units confirmed received! Request marked as Received ✓.`
       );
 
       // Update state locally
@@ -341,27 +341,26 @@ export const HospitalDashboardPage = () => {
             ? {
                 ...r,
                 status: 'FULFILLED',
+                confirmedReceived: true,
+                confirmedAt: new Date().toISOString(),
                 receivedConfirmedAt: new Date().toISOString(),
                 receivedBy: confirmForm.receivedBy,
                 batchNo: confirmForm.batchNo,
                 statusHistory: [
                   ...(r.statusHistory || []),
-                  { status: 'FULFILLED', timestamp: new Date().toISOString() },
+                  { status: 'FULFILLED', note: 'Hospital confirmed receipt', timestamp: new Date().toISOString() },
                 ],
               }
             : r
         )
       );
 
+      // Re-fetch to guarantee database persistence
+      await fetchRequests();
       setConfirmModalOpen(false);
-    } catch {
-      toast.success('Receipt verified and logged into hospital transfusion register.');
-      setRequests((prev) =>
-        prev.map((r) =>
-          r._id === selectedReqToConfirm._id ? { ...r, status: 'FULFILLED' } : r
-        )
-      );
-      setConfirmModalOpen(false);
+      setSelectedReqToConfirm(null);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to confirm receipt of units.');
     } finally {
       setIsConfirming(false);
     }
@@ -878,28 +877,61 @@ export const HospitalDashboardPage = () => {
                     </div>
 
                     {/* Action Button: Confirm Units Received */}
-                    {req.status !== 'FULFILLED' && req.status !== 'CANCELLED' ? (
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        onClick={() => handleOpenConfirmModal(req)}
-                        leftIcon={<CheckCircle2 className="w-4 h-4" />}
-                      >
-                        Confirm Units Received
-                      </Button>
-                    ) : (
-                      <div className="text-right">
-                        <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-xl">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                          Fulfilled & Verified
-                        </span>
-                        {req.receivedBy && (
-                          <p className="text-[10px] text-slate-400 mt-1">
-                            Received by {req.receivedBy}
-                          </p>
-                        )}
-                      </div>
-                    )}
+                    {(() => {
+                      const isHospitalCreated = Boolean(
+                        req.hospital || req.hospitalName || req.creatorRole === 'HOSPITAL'
+                      );
+                      const isFulfilled = req.status === 'FULFILLED' || req.status === 'COMPLETED';
+                      const isConfirmed = Boolean(req.confirmedReceived || req.receivedConfirmedAt);
+
+                      if (isHospitalCreated && isFulfilled && !isConfirmed) {
+                        return (
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            onClick={() => handleOpenConfirmModal(req)}
+                            leftIcon={<CheckCircle2 className="w-4 h-4" />}
+                          >
+                            Confirm Units Received
+                          </Button>
+                        );
+                      }
+
+                      if (isConfirmed) {
+                        return (
+                          <div className="text-right">
+                            <span className="inline-flex items-center gap-1.5 text-xs font-black text-emerald-800 bg-emerald-100/90 border border-emerald-300 px-3 py-1.5 rounded-xl shadow-xs">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                              Received ✓
+                            </span>
+                            {(req.confirmedAt || req.receivedConfirmedAt) && (
+                              <p className="text-[10px] text-slate-400 mt-1 font-medium">
+                                Received {new Date(req.confirmedAt || req.receivedConfirmedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      if (isFulfilled) {
+                        return (
+                          <div className="text-right">
+                            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-xl">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                              Fulfilled
+                            </span>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="text-right">
+                          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 bg-slate-100 px-3 py-1 rounded-xl">
+                            {req.status === 'IN_PROGRESS' ? 'In Progress' : 'Pending Fulfillment'}
+                          </span>
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   {/* Clinical & Dispatch Details */}

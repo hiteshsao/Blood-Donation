@@ -327,6 +327,18 @@ router.post(
   confirmReceivedUnits
 );
 
+router.put(
+  '/:id/confirm-received',
+  authenticate,
+  [
+    param('id').isMongoId().withMessage('Invalid request ID format'),
+    body('unitsReceived').optional().isInt({ min: 1 }),
+    body('note').optional().trim(),
+    validateRequest,
+  ],
+  confirmReceivedUnits
+);
+
 /**
  * @swagger
  * /api/v1/requests/{id}/status:

@@ -530,26 +530,45 @@ export const confirmReceived = async (requestId, user, { note = '', unitsReceive
     throw err;
   }
 
+  // Ensure request is associated with a hospital (not a purely regular user request)
+  if (!request.hospital) {
+    const err = new Error('Forbidden: Only hospital-associated requests can have receipt confirmed.');
+    err.statusCode = 403;
+    throw err;
+  }
+
   // Check if hospital is linked
-  if (user.role === 'HOSPITAL' && request.hospital) {
+  if (user.role === 'HOSPITAL') {
     const userHospital = await Hospital.findOne({
       $or: [{ user: user._id }, { createdBy: user._id }],
     });
-    if (userHospital && userHospital._id.toString() !== request.hospital.toString()) {
+    if (!userHospital || userHospital._id.toString() !== request.hospital.toString()) {
       const err = new Error('You can only confirm units for requests assigned to your hospital');
       err.statusCode = 403;
       throw err;
     }
   }
 
-  // Validate state machine
-  validateStatusTransition(request.status, 'FULFILLED');
+  if (['REJECTED', 'CANCELLED'].includes(request.status)) {
+    const err = new Error(`Cannot confirm units for a ${request.status} request.`);
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Validate state machine if transitioning from active non-fulfilled state
+  if (request.status !== 'FULFILLED' && request.status !== 'COMPLETED') {
+    validateStatusTransition(request.status, 'FULFILLED');
+  }
 
   const unitsCount = unitsReceived || request.units;
   const fulfillmentNote =
     note || `Confirmed ${unitsCount} unit(s) of ${request.bloodGroup} received and verified by hospital.`;
 
   request.status = 'FULFILLED';
+  request.confirmedReceived = true;
+  request.confirmedAt = new Date();
+  request.confirmedBy = user._id;
+
   request.statusHistory.push({
     status: 'FULFILLED',
     changedBy: user._id,
@@ -561,6 +580,32 @@ export const confirmReceived = async (requestId, user, { note = '', unitsReceive
 
   // Notify requester
   await notifyRequesterOnStatusChange(request, 'FULFILLED', user, fulfillmentNote);
+
+  // Notify issuing blood bank if any
+  try {
+    const { BloodIssue, BloodBank } = await import('../models/index.js');
+    const recentIssue = await BloodIssue.findOne({ request: request._id }).sort({ issuedAt: -1 });
+    if (recentIssue && recentIssue.bloodBank) {
+      const bank = await BloodBank.findById(recentIssue.bloodBank);
+      if (bank && bank.user) {
+        await notify({
+          userId: bank.user,
+          type: 'REQUEST_COMPLETED',
+          title: 'Hospital Confirmed Blood Units Received! ✓',
+          message: `Hospital has confirmed receipt of ${request.units} unit(s) of ${request.bloodGroup} for patient ${request.patientName || ''}. Transfusion loop closed.`,
+          channels: ['IN_APP', 'EMAIL'],
+          meta: {
+            requestId: request._id,
+            bloodGroup: request.bloodGroup,
+            units: request.units,
+            hospitalId: request.hospital,
+          },
+        });
+      }
+    }
+  } catch (bbNotifErr) {
+    console.warn('[RequestService] Blood bank notification failed:', bbNotifErr.message);
+  }
 
   return request;
 };

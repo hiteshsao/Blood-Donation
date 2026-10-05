@@ -15,8 +15,15 @@ import { toGeoJSONPoint } from './geo.util.js';
 
 dotenv.config();
 
-export const seedDatabase = async () => {
+export const seedDatabase = async (options = {}) => {
   try {
+    const isForce = Boolean(options.force || process.argv.includes('--force'));
+    const userCount = await User.countDocuments();
+    if (userCount > 0 && !isForce) {
+      console.log('Data already exists, skipping seed');
+      return;
+    }
+
     console.log('[Seed] Starting complete database seeding...');
 
     // 0. Clean old seed data

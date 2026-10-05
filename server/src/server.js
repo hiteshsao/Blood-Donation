@@ -1,9 +1,9 @@
+import 'dotenv/config';
 import http from 'http';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
-import dotenv from 'dotenv';
 import swaggerUi from 'swagger-ui-express';
 import path from 'path';
 
@@ -39,8 +39,7 @@ import { initDonorCron } from './jobs/donor.cron.js';
 import { initEmergencyCron } from './jobs/emergency.cron.js';
 import { initAppointmentCron } from './jobs/appointment.cron.js';
 
-// Load environment variables
-dotenv.config();
+// Express and HTTP server initialization
 
 const app = express();
 const server = http.createServer(app);
@@ -154,8 +153,6 @@ app.use('*', (req, res) => {
 // Centralized Error Handling Middleware
 app.use(errorHandler);
 
-import { seedDatabase } from './utils/seed.js';
-
 const PORT = process.env.PORT || 5000;
 
 const isTestEnv =
@@ -167,7 +164,6 @@ const isTestEnv =
 // Start Server only outside of automated test runners
 if (!isTestEnv) {
   connectDB().then(async () => {
-    await seedDatabase();
     initInventoryCron();
     initDonorCron();
     initEmergencyCron();

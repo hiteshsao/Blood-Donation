@@ -114,6 +114,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/v1/profile', profileRoutes);
 app.use('/api/v1/donor', donorRoutes);
 app.use('/api/donors', donorRoutes);
+app.use('/api/v1/inventory', inventoryRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/v1/admin', adminRoutes);
 app.use('/api/admin', adminRoutes);

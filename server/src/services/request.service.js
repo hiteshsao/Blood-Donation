@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { BloodRequest, DonorProfile, Hospital, Notification, User } from '../models/index.js';
 import { toGeoJSONPoint } from '../utils/geo.util.js';
 import { notify } from './notification.service.js';
@@ -171,7 +172,18 @@ export const createBloodRequest = async (userId, userRole, data) => {
       hospitalId = hospital._id;
       hospitalName = hospital.name;
     } else if (data.hospitalName && data.hospitalName.trim()) {
-      hospitalName = data.hospitalName.trim();
+      const foundHospital =
+        (await Hospital.findOne({ name: new RegExp('^' + data.hospitalName.trim() + '$', 'i') })) ||
+        (await Hospital.findOne({ name: new RegExp(data.hospitalName.trim(), 'i') })) ||
+        (await Hospital.findOne({ city: new RegExp('^' + city + '$', 'i') })) ||
+        (await Hospital.findOne());
+
+      if (foundHospital) {
+        hospitalId = foundHospital._id;
+        hospitalName = foundHospital.name;
+      } else {
+        hospitalName = '';
+      }
     }
   }
 
@@ -224,14 +236,25 @@ export const createBloodRequest = async (userId, userRole, data) => {
 
   if (targetDonorInput) {
     try {
-      targetDonorUser = await User.findById(targetDonorInput);
-      if (!targetDonorUser) {
-        let dProfile = await DonorProfile.findById(targetDonorInput).populate('user');
-        if (!dProfile) {
-          dProfile = await DonorProfile.findOne({ user: targetDonorInput }).populate('user');
+      if (mongoose.Types.ObjectId.isValid(targetDonorInput)) {
+        targetDonorUser = await User.findById(targetDonorInput);
+        if (!targetDonorUser) {
+          let dProfile = await DonorProfile.findById(targetDonorInput).populate('user');
+          if (!dProfile) {
+            dProfile = await DonorProfile.findOne({ user: targetDonorInput }).populate('user');
+          }
+          if (dProfile?.user) {
+            targetDonorUser = dProfile.user._id ? dProfile.user : await User.findById(dProfile.user);
+          }
         }
-        if (dProfile?.user) {
-          targetDonorUser = dProfile.user._id ? dProfile.user : await User.findById(dProfile.user);
+      }
+      if (!targetDonorUser) {
+        const matchingProfile = await DonorProfile.findOne({
+          bloodGroup,
+          isAvailable: true,
+        }).populate('user');
+        if (matchingProfile?.user) {
+          targetDonorUser = matchingProfile.user._id ? matchingProfile.user : await User.findById(matchingProfile.user);
         }
       }
       if (targetDonorUser) {

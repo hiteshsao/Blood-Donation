@@ -13,9 +13,11 @@ import {
   ArrowRight,
   Calendar,
   AlertCircle,
+  Clock,
+  AlertTriangle,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { searchAPI, requestAPI } from '../services/api';
+import api, { searchAPI, requestAPI, hospitalAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { Button, Input, Select, StatusBadge, Loader, EmptyState, Modal } from '../components/common';
 
@@ -106,12 +108,24 @@ export const FindBloodPage = () => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('donors'); // 'donors' | 'banks'
   const [bloodGroup, setBloodGroup] = useState('');
-  const [city, setCity] = useState('Mumbai');
+  const [city, setCity] = useState('');
   const [radiusKm, setRadiusKm] = useState(25);
 
   const [donors, setDonors] = useState(FALLBACK_DONORS);
   const [bloodBanks, setBloodBanks] = useState(FALLBACK_BANKS);
   const [loading, setLoading] = useState(false);
+
+  // Hospital registry state for linking requests
+  const [hospitals, setHospitals] = useState([]);
+
+  // Requested donor IDs tracking to update button state
+  const [requestedDonorIds, setRequestedDonorIds] = useState([]);
+
+  // Blood Bank Inventory State
+  const [selectedBankId, setSelectedBankId] = useState(null);
+  const [inventory, setInventory] = useState([]);
+  const [inventoryLoading, setInventoryLoading] = useState(false);
+  const [inventoryError, setInventoryError] = useState(null);
 
   // Request Blood Modal State
   const [requestModalOpen, setRequestModalOpen] = useState(false);
@@ -122,21 +136,43 @@ export const FindBloodPage = () => {
     bloodGroup: 'O+',
     units: 1,
     urgency: 'URGENT',
+    hospitalId: '',
     hospitalName: '',
     city: 'Mumbai',
     contactNumber: '',
     notes: '',
   });
 
+  // Fetch verified hospitals on mount for direct requisitions
+  useEffect(() => {
+    hospitalAPI
+      .getVerifiedHospitals()
+      .then((res) => {
+        const list = res.data?.hospitals || res.data?.data || res.data;
+        if (Array.isArray(list)) {
+          setHospitals(list);
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to load registered hospitals:', err.message);
+      });
+  }, []);
+
   const handleOpenRequestModal = (donor) => {
     setSelectedDonor(donor);
+    const matchedHospital =
+      hospitals.find((h) => h.city?.toLowerCase() === (donor?.user?.city || city || '').toLowerCase()) ||
+      hospitals[0] ||
+      null;
+
     setRequestForm({
-      patientName: '',
-      bloodGroup: donor.bloodGroup || 'O+',
+      patientName: user?.name || '',
+      bloodGroup: donor?.bloodGroup || bloodGroup || 'O+',
       units: 1,
       urgency: 'URGENT',
-      hospitalName: '',
-      city: donor.user?.city || city || user?.city || 'Mumbai',
+      hospitalId: matchedHospital?._id || '',
+      hospitalName: matchedHospital?.name || '',
+      city: donor?.user?.city || city || user?.city || 'Mumbai',
       contactNumber: user?.phone || user?.mobile || '',
       notes: '',
     });
@@ -156,14 +192,17 @@ export const FindBloodPage = () => {
 
     setIsSubmittingRequest(true);
     try {
+      const donorUserId = selectedDonor?.user?._id || selectedDonor?._id || selectedDonor?.id;
       const payload = {
-        donorId: selectedDonor?._id || selectedDonor?.id,
-        targetedDonor: selectedDonor?._id || selectedDonor?.id,
+        donorId: donorUserId,
+        targetedDonor: donorUserId,
         patientName: requestForm.patientName.trim(),
         bloodGroup: requestForm.bloodGroup,
         units: Math.max(1, Number(requestForm.units) || 1),
         urgency: requestForm.urgency,
-        hospitalName: requestForm.hospitalName.trim() || undefined,
+        hospital: requestForm.hospitalId || undefined,
+        hospitalId: requestForm.hospitalId || undefined,
+        hospitalName: requestForm.hospitalName?.trim() || undefined,
         city: requestForm.city.trim(),
         contactNumber: requestForm.contactNumber.trim() || undefined,
         contactPhone: requestForm.contactNumber.trim() || undefined,
@@ -174,8 +213,15 @@ export const FindBloodPage = () => {
       toast.success(
         res.data?.message || 'Blood request submitted successfully! Targeted donor notified.'
       );
+      if (selectedDonor) {
+        setRequestedDonorIds((prev) => [
+          ...prev,
+          selectedDonor._id,
+          selectedDonor.id,
+          selectedDonor.user?._id,
+        ].filter(Boolean));
+      }
       setRequestModalOpen(false);
-      navigate('/requests');
     } catch (err) {
       toast.error(
         err.response?.data?.message || err.message || 'Failed to submit blood request.'
@@ -184,6 +230,57 @@ export const FindBloodPage = () => {
       setIsSubmittingRequest(false);
     }
   };
+
+  // Fetch inventory for selected blood bank
+  const fetchBankInventory = useCallback(async (bankId) => {
+    if (!bankId) return;
+    setInventoryLoading(true);
+    setInventoryError(null);
+    try {
+      const res = await api.get(`/inventory/${bankId}`);
+      const items = res.data?.inventory;
+      if (Array.isArray(items)) {
+        setInventory(items);
+      } else {
+        setInventory([]);
+      }
+    } catch (err) {
+      console.warn('[FindBloodPage] Direct inventory endpoint failed, using stock data:', err);
+      const foundBank = bloodBanks.find((b) => (b._id || b.id) === bankId);
+      if (foundBank?.stock) {
+        const fallbackItems = Object.entries(foundBank.stock).map(([bg, count]) => ({
+          bloodGroup: bg,
+          availableUnits: count,
+          lastUpdated: foundBank.lastUpdated || new Date().toISOString(),
+          lowStockThreshold: 5,
+        }));
+        setInventory(fallbackItems);
+      } else {
+        setInventoryError(err.response?.data?.message || 'Failed to load blood bank inventory.');
+      }
+    } finally {
+      setInventoryLoading(false);
+    }
+  }, [bloodBanks]);
+
+  // Synchronize active blood bank selection
+  useEffect(() => {
+    if (bloodBanks.length > 0) {
+      const exists = bloodBanks.some((b) => (b._id || b.id) === selectedBankId);
+      if (!exists) {
+        setSelectedBankId(bloodBanks[0]._id || bloodBanks[0].id);
+      }
+    } else {
+      setSelectedBankId(null);
+      setInventory([]);
+    }
+  }, [bloodBanks, selectedBankId]);
+
+  useEffect(() => {
+    if (selectedBankId) {
+      fetchBankInventory(selectedBankId);
+    }
+  }, [selectedBankId, fetchBankInventory]);
 
   // Search API fetch
   const handleSearch = useCallback(async () => {
@@ -235,6 +332,30 @@ export const FindBloodPage = () => {
     handleSearch();
   }, [handleSearch]);
 
+  const selectedBank =
+    bloodBanks.find((b) => (b._id || b.id) === selectedBankId) || bloodBanks[0];
+
+  const formatLastUpdated = (dateStr) => {
+    if (!dateStr) return 'Recently';
+    try {
+      const d = new Date(dateStr);
+      return isNaN(d.getTime())
+        ? 'Recently'
+        : d.toLocaleDateString('en-IN', {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+    } catch {
+      return 'Recently';
+    }
+  };
+
+  const displayedInventory = bloodGroup
+    ? inventory.filter((item) => item.bloodGroup === bloodGroup)
+    : inventory;
+
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
       {/* Search Header */}
@@ -264,7 +385,7 @@ export const FindBloodPage = () => {
           <Input
             label="City / District"
             value={city}
-            placeholder="e.g. Mumbai"
+            placeholder="Enter your city or district"
             onChange={(e) => setCity(e.target.value)}
           />
 
@@ -304,10 +425,9 @@ export const FindBloodPage = () => {
             onClick={() => setActiveTab('donors')}
             className={`
               flex items-center gap-2 px-5 py-2.5 rounded-2xl text-xs sm:text-sm font-black transition-all
-              ${
-                activeTab === 'donors'
-                  ? 'bg-gradient-to-r from-[#991B1B] to-[#C62828] text-white shadow-md shadow-red-900/20'
-                  : 'bg-white text-slate-600 hover:text-red-700 border border-slate-200'
+              ${activeTab === 'donors'
+                ? 'bg-gradient-to-r from-[#991B1B] to-[#C62828] text-white shadow-md shadow-red-900/20'
+                : 'bg-white text-slate-600 hover:text-red-700 border border-slate-200'
               }
             `}
           >
@@ -320,10 +440,9 @@ export const FindBloodPage = () => {
             onClick={() => setActiveTab('banks')}
             className={`
               flex items-center gap-2 px-5 py-2.5 rounded-2xl text-xs sm:text-sm font-black transition-all
-              ${
-                activeTab === 'banks'
-                  ? 'bg-gradient-to-r from-[#991B1B] to-[#C62828] text-white shadow-md shadow-red-900/20'
-                  : 'bg-white text-slate-600 hover:text-red-700 border border-slate-200'
+              ${activeTab === 'banks'
+                ? 'bg-gradient-to-r from-[#991B1B] to-[#C62828] text-white shadow-md shadow-red-900/20'
+                : 'bg-white text-slate-600 hover:text-red-700 border border-slate-200'
               }
             `}
           >
@@ -396,14 +515,27 @@ export const FindBloodPage = () => {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={() => handleOpenRequestModal(d)}
-                      rightIcon={<ArrowRight className="w-3.5 h-3.5" />}
-                    >
-                      Request Blood
-                    </Button>
+                    {requestedDonorIds.includes(d._id || d.id) ||
+                      (d.user?._id && requestedDonorIds.includes(d.user._id)) ? (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled
+                        className="bg-emerald-50 text-emerald-700 border-emerald-200 cursor-default font-bold opacity-90"
+                        leftIcon={<CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />}
+                      >
+                        Requested
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => handleOpenRequestModal(d)}
+                        rightIcon={<ArrowRight className="w-3.5 h-3.5" />}
+                      >
+                        Request Blood
+                      </Button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -415,53 +547,151 @@ export const FindBloodPage = () => {
         bloodBanks.length === 0 ? (
           <EmptyState
             title="No Blood Banks Found"
-            description={`No certified blood banks matched your query in ${city}.`}
+            description={`No certified blood banks matched your query in ${city || 'selected area'}.`}
             actionLabel="Reset Search"
-            onAction={() => setCity('Mumbai')}
+            onAction={() => {
+              setCity('Mumbai');
+              setBloodGroup('');
+            }}
           />
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            {bloodBanks.map((b) => (
-              <div
-                key={b._id || b.id}
-                className="bg-white rounded-3xl border border-red-100 p-6 shadow-sm hover:shadow-md hover:border-red-200 transition-all flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <div className="p-3 rounded-2xl bg-blue-50 text-blue-700 border border-blue-100 shrink-0">
-                        <Building2 className="w-6 h-6" />
-                      </div>
+          <div className="space-y-6">
+            {/* Blood Banks Selection List */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-[#C62828]" />
+                  <span>Certified Blood Banks ({bloodBanks.length})</span>
+                </h3>
+                <span className="text-xs text-slate-500 font-medium">
+                  Select a facility to inspect real-time inventory
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {bloodBanks.map((b) => {
+                  const bId = b._id || b.id;
+                  const isSelected = selectedBankId === bId;
+                  const bankAddress =
+                    typeof b.address === 'string'
+                      ? b.address
+                      : b.address?.city || b.city || 'Local Area';
+
+                  return (
+                    <div
+                      key={bId}
+                      onClick={() => setSelectedBankId(bId)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') setSelectedBankId(bId);
+                      }}
+                      className={`
+                        p-5 rounded-3xl border transition-all cursor-pointer flex flex-col justify-between text-left
+                        ${isSelected
+                          ? 'bg-red-50/40 border-red-500 shadow-md ring-2 ring-red-500/20'
+                          : 'bg-white border-slate-200 hover:border-red-200 hover:shadow-sm'
+                        }
+                      `}
+                    >
                       <div>
-                        <h4 className="text-base font-black text-slate-900">{b.name}</h4>
-                        <p className="text-xs text-slate-400 font-bold">
-                          Lic: {b.licenseNumber || 'CDSCO-APPROVED'}
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <div className="flex items-center gap-2.5">
+                            <div
+                              className={`p-2.5 rounded-xl ${isSelected
+                                  ? 'bg-red-600 text-white'
+                                  : 'bg-red-50 text-[#C62828]'
+                                }`}
+                            >
+                              <Building2 className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <h4 className="text-sm font-black text-slate-900 leading-tight">
+                                {b.name}
+                              </h4>
+                              <p className="text-[11px] text-slate-400 font-semibold mt-0.5">
+                                Lic: {b.licenseNumber || b.registrationNumber || 'CDSCO-APPROVED'}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <p className="text-xs text-slate-500 font-medium flex items-start gap-1.5 mt-2 line-clamp-2">
+                          <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                          <span>{bankAddress}</span>
                         </p>
                       </div>
-                    </div>
 
-                    <div className="text-right">
-                      <span className="text-xs font-black text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-xl border border-emerald-200">
-                        {b.availableUnits ?? 24} Units Buffer
+                      <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
+                          <Phone className="w-3 h-3 text-[#C62828]" />
+                          {b.phone || '+91 98000 00000'}
+                        </span>
+
+                        <span
+                          className={`text-xs font-black px-2.5 py-1 rounded-xl border ${isSelected
+                              ? 'bg-red-600 text-white border-red-600'
+                              : 'bg-slate-100 text-slate-700 border-slate-200'
+                            }`}
+                        >
+                          {isSelected ? 'Viewing Stock' : 'View Stock'}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Selected Facility Live Inventory Grid */}
+            <div className="bg-white rounded-3xl border border-red-100 p-6 shadow-sm">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-100">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-black">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                      Live Facility Inventory
+                    </span>
+                    {bloodGroup && (
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-red-100 text-[#C62828]">
+                        Filter: {bloodGroup}
                       </span>
-                    </div>
+                    )}
                   </div>
-
-                  <p className="text-xs text-slate-500 font-medium mt-3 flex items-start gap-1.5 leading-relaxed">
-                    <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
-                    <span>{b.address || `${b.city}, Maharashtra`}</span>
+                  <h3 className="text-lg font-black text-slate-900 mt-1">
+                    {selectedBank?.name || 'Blood Bank Inventory'}
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium flex items-center gap-1.5 mt-0.5">
+                    <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                    <span>
+                      {typeof selectedBank?.address === 'string'
+                        ? selectedBank.address
+                        : selectedBank?.address?.city || selectedBank?.city || 'Local Area'}
+                    </span>
+                    <span className="text-slate-300">•</span>
+                    <Clock className="w-3.5 h-3.5 text-slate-400" />
+                    <span>
+                      Last Updated:{' '}
+                      {formatLastUpdated(
+                        inventory[0]?.lastUpdated || selectedBank?.lastUpdated
+                      )}
+                    </span>
                   </p>
                 </div>
 
-                <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between gap-2">
-                  <span className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
-                    <Phone className="w-3.5 h-3.5 text-[#C62828]" />
-                    {b.phone || '+91 98000 00000'}
-                  </span>
-
-                  <Link to={`/appointments?bankId=${b._id}`}>
+                <div className="flex items-center gap-3">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => selectedBankId && fetchBankInventory(selectedBankId)}
+                    isLoading={inventoryLoading}
+                    leftIcon={<Clock className="w-3.5 h-3.5" />}
+                  >
+                    Refresh Units
+                  </Button>
+                  <Link to={`/appointments?bankId=${selectedBankId || ''}`}>
                     <Button
-                      variant="secondary"
+                      variant="primary"
                       size="sm"
                       rightIcon={<Calendar className="w-3.5 h-3.5" />}
                     >
@@ -470,7 +700,106 @@ export const FindBloodPage = () => {
                   </Link>
                 </div>
               </div>
-            ))}
+
+              {/* State Handling: Loading, Error, Empty, and Success Grid */}
+              <div className="pt-6">
+                {inventoryLoading ? (
+                  <div className="py-12 flex justify-center">
+                    <Loader
+                      message={`Loading live stock units for ${selectedBank?.name || 'facility'
+                        }...`}
+                    />
+                  </div>
+                ) : inventoryError ? (
+                  <div className="p-6 rounded-2xl bg-red-50 border border-red-200 text-center space-y-3">
+                    <div className="inline-flex p-3 rounded-full bg-red-100 text-[#C62828]">
+                      <AlertTriangle className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-black text-slate-900">
+                        Failed to Load Inventory
+                      </h4>
+                      <p className="text-xs text-slate-600 font-medium mt-1">{inventoryError}</p>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => selectedBankId && fetchBankInventory(selectedBankId)}
+                    >
+                      Retry Loading Stock
+                    </Button>
+                  </div>
+                ) : displayedInventory.length === 0 ? (
+                  <EmptyState
+                    title="No Matching Units Found"
+                    description={
+                      bloodGroup
+                        ? `No ${bloodGroup} units currently recorded at ${selectedBank?.name || 'this facility'
+                        }.`
+                        : `No inventory records available for ${selectedBank?.name || 'this facility'
+                        }.`
+                    }
+                    actionLabel={bloodGroup ? 'Clear Blood Group Filter' : undefined}
+                    onAction={bloodGroup ? () => setBloodGroup('') : undefined}
+                  />
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    {displayedInventory.map((item, idx) => {
+                      const units = item.availableUnits ?? item.available ?? 0;
+                      const isLow = units > 0 && units < (item.lowStockThreshold || 5);
+                      const isOut = units === 0;
+
+                      return (
+                        <div
+                          key={item.bloodGroup || idx}
+                          className={`
+                            p-4 rounded-2xl border transition-all flex flex-col justify-between
+                            ${item.bloodGroup === bloodGroup
+                              ? 'bg-red-50/50 border-red-400 ring-2 ring-red-400/30'
+                              : 'bg-slate-50/50 border-slate-100 hover:border-slate-200'
+                            }
+                          `}
+                        >
+                          <div className="flex items-start justify-between mb-3">
+                            <span className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#991B1B] to-[#C62828] text-white font-black text-sm flex items-center justify-center shadow-sm">
+                              {item.bloodGroup}
+                            </span>
+                            <span
+                              className={`text-[10px] font-black px-2 py-0.5 rounded-md ${isOut
+                                  ? 'bg-rose-100 text-rose-700'
+                                  : isLow
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : 'bg-emerald-100 text-emerald-800'
+                                }`}
+                            >
+                              {isOut ? 'Out of Stock' : isLow ? 'Low Stock' : 'In Stock'}
+                            </span>
+                          </div>
+
+                          <div>
+                            <div className="flex items-baseline gap-1">
+                              <span className="text-2xl font-black text-slate-900 tracking-tight">
+                                {units}
+                              </span>
+                              <span className="text-xs font-bold text-slate-500">
+                                Units Available
+                              </span>
+                            </div>
+
+                            <div className="mt-2 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-400 font-medium">
+                              <span className="truncate max-w-[120px]">
+                                {selectedBank?.name}
+                              </span>
+                              <span>{formatLastUpdated(item.lastUpdated)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )
       )}
@@ -560,12 +889,42 @@ export const FindBloodPage = () => {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-            <Input
-              label="Hospital / Clinic Name"
-              placeholder="e.g. Apollo Hospital"
-              value={requestForm.hospitalName}
-              onChange={(e) => setRequestForm((prev) => ({ ...prev, hospitalName: e.target.value }))}
-            />
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                Hospital / Facility
+              </label>
+              {hospitals.length > 0 ? (
+                <select
+                  value={requestForm.hospitalId || ''}
+                  onChange={(e) => {
+                    const chosenId = e.target.value;
+                    const h = hospitals.find((item) => (item._id || item.id) === chosenId);
+                    setRequestForm((prev) => ({
+                      ...prev,
+                      hospitalId: chosenId,
+                      hospitalName: h ? h.name : prev.hospitalName,
+                      city: h?.city || prev.city,
+                    }));
+                  }}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-red-500"
+                >
+                  <option value="">-- Select Registered Hospital --</option>
+                  {hospitals.map((h) => (
+                    <option key={h._id || h.id} value={h._id || h.id}>
+                      {h.name} ({h.city})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <Input
+                  placeholder="e.g. Apollo Hospital"
+                  value={requestForm.hospitalName}
+                  onChange={(e) =>
+                    setRequestForm((prev) => ({ ...prev, hospitalName: e.target.value }))
+                  }
+                />
+              )}
+            </div>
 
             <Input
               label="City / District *"
@@ -608,12 +967,14 @@ export const FindBloodPage = () => {
             </Button>
             <Button
               type="submit"
+              id="confirm-request-btn"
               variant="primary"
               size="md"
               isLoading={isSubmittingRequest}
+              disabled={isSubmittingRequest}
               rightIcon={<ArrowRight className="w-4 h-4" />}
             >
-              Confirm & Request Blood
+              Confirm
             </Button>
           </div>
         </form>

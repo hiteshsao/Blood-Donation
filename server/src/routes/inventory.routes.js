@@ -1,6 +1,6 @@
 import express from 'express';
 import { body } from 'express-validator';
-import { authenticate } from '../middlewares/auth.js';
+import { authenticate, optionalAuthenticate } from '../middlewares/auth.js';
 import { validateRequest } from '../middlewares/validate.js';
 import { auditMiddleware } from '../middlewares/auditLog.middleware.js';
 import {
@@ -37,7 +37,7 @@ router.get('/logs/:bloodBankId', authenticate, getStockLogs);
  *     summary: Retrieve blood inventory grid for a facility
  *     tags: [Inventory]
  */
-router.get('/:bloodBankId', authenticate, getInventoryByBank);
+router.get('/:bloodBankId', optionalAuthenticate, getInventoryByBank);
 
 /**
  * @swagger

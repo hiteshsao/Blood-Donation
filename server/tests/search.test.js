@@ -319,7 +319,7 @@ describe('GET /api/v1/search/donors', () => {
     expect(res.body.donors[0].user.city).toBe('Mumbai');
   });
 
-  it('should hide sensitive data and mask phone number by default', async () => {
+  it('should hide sensitive data and never return phone numbers in donor search for privacy', async () => {
     const res = await request.get('/api/v1/search/donors');
     expect(res.status).toBe(200);
     const donor = res.body.donors.find((d) => d.bloodGroup === 'O+');
@@ -331,13 +331,11 @@ describe('GET /api/v1/search/donors', () => {
     expect(donor.medicalNotes).toBeUndefined();
     expect(donor.medicalConditions).toBeUndefined();
 
-    // Check phone is masked
-    expect(donor.user.phoneMasked).toBe(true);
-    expect(donor.user.phone).toContain('**');
-    expect(donor.user.phone).not.toBe('9876543211');
+    // Check phone is NOT exposed in donor search
+    expect(donor.user.phone).toBeUndefined();
   });
 
-  it('should UNMASK phone number when requester has an ACCEPTED blood request with donor', async () => {
+  it('should not expose phone number in donor search even if request is accepted', async () => {
     // Create an ACCEPTED request between requesterUser and donorUser1
     await BloodRequest.create({
       requester: requesterUser._id,
@@ -364,9 +362,8 @@ describe('GET /api/v1/search/donors', () => {
     expect(res.body.donors.length).toBe(1);
     const donor = res.body.donors[0];
 
-    // Phone should now be unmasked for donorUser1
-    expect(donor.user.phoneMasked).toBe(false);
-    expect(donor.user.phone).toBe('9876543211');
+    // Phone should remain undefined in donor search results
+    expect(donor.user.phone).toBeUndefined();
   });
 
   it('should support geospatial proximity search with lat, lng, and radiusKm', async () => {
@@ -414,6 +411,44 @@ describe('GET /api/v1/search/donors', () => {
   it('should reject invalid lat/lng coordinates with 400', async () => {
     const res = await request.get('/api/v1/search/donors?lat=100&lng=72.8');
     expect(res.status).toBe(400);
+  });
+
+  it('should reject invalid pincode not starting with 49 with 400', async () => {
+    const res = await request.get('/api/v1/search/donors?pincode=110001');
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+  });
+
+  it('should accept valid Chhattisgarh pincode format (49xxxx)', async () => {
+    const res = await request.get('/api/v1/search/donors?pincode=492001');
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+
+  it('should return live location to authenticated user but omit phone number', async () => {
+    const res = await request
+      .get('/api/v1/search/donors')
+      .set('Authorization', `Bearer ${requesterToken}`);
+    expect(res.status).toBe(200);
+    const donor = res.body.donors[0];
+    expect(donor).toBeDefined();
+    expect(donor.user.phone).toBeUndefined();
+    expect(donor.hasLiveLocation).toBe(true);
+    expect(donor.mapUrl).toContain('google.com/maps');
+    expect(donor.latitude).toBeDefined();
+    expect(donor.longitude).toBeDefined();
+  });
+
+  it('should hide live coordinates and omit phone for unauthenticated users', async () => {
+    const res = await request.get('/api/v1/search/donors');
+    expect(res.status).toBe(200);
+    const donor = res.body.donors[0];
+    expect(donor).toBeDefined();
+    expect(donor.user.phone).toBeUndefined();
+    expect(donor.hasLiveLocation).toBe(false);
+    expect(donor.mapUrl).toBeNull();
+    expect(donor.latitude).toBeNull();
+    expect(donor.longitude).toBeNull();
   });
 });
 

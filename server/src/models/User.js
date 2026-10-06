@@ -110,6 +110,18 @@ const UserSchema = new mongoose.Schema(
         default: [0, 0],
       },
     },
+    locationUpdatedAt: {
+      type: Date,
+      default: () => new Date(),
+    },
+    shareContact: {
+      type: Boolean,
+      default: true,
+    },
+    shareLocation: {
+      type: Boolean,
+      default: true,
+    },
     profilePhoto: {
       type: String,
       default: null,

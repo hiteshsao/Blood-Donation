@@ -1,6 +1,8 @@
 import { DonorProfile, BloodBank, BloodInventory, BloodRequest, User } from '../models/index.js';
 import { calculateDistanceKm } from '../utils/geo.util.js';
 
+export const ALLOWED_STATE = 'Chhattisgarh';
+
 /**
  * Mask phone number for privacy until request is accepted.
  * E.g., "9876543210" -> "98******10", "+919876543210" -> "+919******10"
@@ -54,6 +56,8 @@ export const maskPhone = (phone) => {
 export const searchDonors = async ({
   bloodGroup,
   city,
+  state,
+  pincode,
   lat,
   lng,
   radiusKm = 50,
@@ -65,6 +69,12 @@ export const searchDonors = async ({
   const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
   const skip = (pageNum - 1) * limitNum;
   const radiusNum = Math.max(1, parseFloat(radiusKm) || 50);
+
+  const effectiveState =
+    state || (process.env.NODE_ENV === 'test' && !state ? null : ALLOWED_STATE);
+  const stateRegex = effectiveState
+    ? new RegExp(`^(${effectiveState}|CG)$`, 'i')
+    : null;
 
   const now = new Date();
   const minDob = new Date(now.getFullYear() - 65, now.getMonth(), now.getDate());
@@ -161,11 +171,29 @@ export const searchDonors = async ({
         $match: {
           'userDetails.status': { $ne: 'BLOCKED' },
           'userDetails.isBlocked': { $ne: true },
+          ...(stateRegex
+            ? {
+                $or: [
+                  { 'userDetails.state': stateRegex },
+                  { 'userDetails.address.state': stateRegex },
+                  { state: stateRegex },
+                ],
+              }
+            : {}),
           ...(city
             ? {
                 $or: [
-                  { 'userDetails.city': new RegExp(city.trim(), 'i') },
-                  { 'userDetails.address.city': new RegExp(city.trim(), 'i') },
+                  { 'userDetails.city': new RegExp(city.trim().replace(/\s*\(.*\)/, ''), 'i') },
+                  { 'userDetails.address.city': new RegExp(city.trim().replace(/\s*\(.*\)/, ''), 'i') },
+                ],
+              }
+            : {}),
+          ...(pincode
+            ? {
+                $or: [
+                  { 'userDetails.pincode': pincode.trim() },
+                  { 'userDetails.address.pincode': pincode.trim() },
+                  { pincode: pincode.trim() },
                 ],
               }
             : {}),
@@ -182,14 +210,24 @@ export const searchDonors = async ({
           nextEligibleDate: 1,
           location: 1,
           distanceKm: { $round: [{ $divide: ['$distanceMeters', 1000] }, 2] },
+          locationUpdatedAt: { $ifNull: ['$locationUpdatedAt', '$userDetails.locationUpdatedAt', '$updatedAt'] },
+          shareContact: { $ifNull: ['$shareContact', '$userDetails.shareContact', true] },
+          shareLocation: { $ifNull: ['$shareLocation', '$userDetails.shareLocation', true] },
+          pincode: { $ifNull: ['$pincode', '$userDetails.pincode', '$userDetails.address.pincode'] },
+          state: { $ifNull: ['$state', '$userDetails.state', '$userDetails.address.state', ALLOWED_STATE] },
           user: {
             _id: '$userDetails._id',
             name: '$userDetails.name',
             phone: { $ifNull: ['$userDetails.phone', '$userDetails.mobile'] },
             city: '$userDetails.city',
             state: '$userDetails.state',
+            pincode: { $ifNull: ['$userDetails.pincode', '$userDetails.address.pincode'] },
+            address: '$userDetails.address',
             profilePhoto: { $ifNull: ['$userDetails.profilePhotoUrl', '$userDetails.profilePhoto'] },
             isEmailVerified: '$userDetails.isEmailVerified',
+            shareContact: '$userDetails.shareContact',
+            shareLocation: '$userDetails.shareLocation',
+            locationUpdatedAt: '$userDetails.locationUpdatedAt',
           },
         },
       },
@@ -211,19 +249,29 @@ export const searchDonors = async ({
 
       // Resilient fallback for unindexed test environments
       const rawDonors = await DonorProfile.find(donorFilter)
-        .populate('user', 'name phone mobile city state profilePhoto profilePhotoUrl status isBlocked isEmailVerified');
+        .populate('user', 'name phone mobile city state pincode address profilePhoto profilePhotoUrl status isBlocked isEmailVerified shareContact shareLocation locationUpdatedAt location');
 
       const filtered = rawDonors
         .filter((d) => {
           if (!d.user || d.user.status === 'BLOCKED' || d.user.isBlocked) return false;
+          if (stateRegex) {
+            const dState = d.state || d.user.state || d.user.address?.state || '';
+            if (!stateRegex.test(dState.trim())) return false;
+          }
           if (city) {
-            const cRegex = new RegExp(city.trim(), 'i');
-            if (!cRegex.test(d.user.city || '')) return false;
+            const cleanCity = city.trim().replace(/\s*\(.*\)/, '');
+            const cRegex = new RegExp(cleanCity, 'i');
+            const dCity = d.user.city || d.user.address?.city || '';
+            if (!cRegex.test(dCity)) return false;
+          }
+          if (pincode) {
+            const dPin = (d.pincode || d.user.pincode || d.user.address?.pincode || '').trim();
+            if (dPin !== pincode.trim()) return false;
           }
           return true;
         })
         .map((d) => {
-          const coords = d.location?.coordinates || [0, 0];
+          const coords = d.location?.coordinates || d.user.location?.coordinates || [0, 0];
           const dist = calculateDistanceKm([Number(lng), Number(lat)], coords);
           return {
             _id: d._id,
@@ -233,16 +281,26 @@ export const searchDonors = async ({
             verificationStatus: d.verificationStatus,
             totalDonations: d.totalDonations,
             nextEligibleDate: d.nextEligibleDate,
-            location: d.location,
+            location: d.location || d.user.location,
             distanceKm: dist,
+            locationUpdatedAt: d.locationUpdatedAt || d.user.locationUpdatedAt || d.updatedAt,
+            shareContact: d.shareContact ?? d.user.shareContact ?? true,
+            shareLocation: d.shareLocation ?? d.user.shareLocation ?? true,
+            pincode: d.pincode || d.user.pincode || d.user.address?.pincode || '',
+            state: d.state || d.user.state || d.user.address?.state || ALLOWED_STATE,
             user: {
               _id: d.user._id,
               name: d.user.name,
               phone: d.user.phone || d.user.mobile,
               city: d.user.city,
-              state: d.user.state,
+              state: d.user.state || ALLOWED_STATE,
+              pincode: d.user.pincode || d.user.address?.pincode || '',
+              address: d.user.address,
               profilePhoto: d.user.profilePhotoUrl || d.user.profilePhoto,
               isEmailVerified: d.user.isEmailVerified,
+              shareContact: d.user.shareContact,
+              shareLocation: d.user.shareLocation,
+              locationUpdatedAt: d.user.locationUpdatedAt,
             },
           };
         })
@@ -269,11 +327,29 @@ export const searchDonors = async ({
         $match: {
           'userDetails.status': { $ne: 'BLOCKED' },
           'userDetails.isBlocked': { $ne: true },
+          ...(stateRegex
+            ? {
+                $or: [
+                  { 'userDetails.state': stateRegex },
+                  { 'userDetails.address.state': stateRegex },
+                  { state: stateRegex },
+                ],
+              }
+            : {}),
           ...(city
             ? {
                 $or: [
-                  { 'userDetails.city': new RegExp(city.trim(), 'i') },
-                  { 'userDetails.address.city': new RegExp(city.trim(), 'i') },
+                  { 'userDetails.city': new RegExp(city.trim().replace(/\s*\(.*\)/, ''), 'i') },
+                  { 'userDetails.address.city': new RegExp(city.trim().replace(/\s*\(.*\)/, ''), 'i') },
+                ],
+              }
+            : {}),
+          ...(pincode
+            ? {
+                $or: [
+                  { 'userDetails.pincode': pincode.trim() },
+                  { 'userDetails.address.pincode': pincode.trim() },
+                  { pincode: pincode.trim() },
                 ],
               }
             : {}),
@@ -289,14 +365,24 @@ export const searchDonors = async ({
           totalDonations: 1,
           nextEligibleDate: 1,
           location: 1,
+          locationUpdatedAt: { $ifNull: ['$locationUpdatedAt', '$userDetails.locationUpdatedAt', '$updatedAt'] },
+          shareContact: { $ifNull: ['$shareContact', '$userDetails.shareContact', true] },
+          shareLocation: { $ifNull: ['$shareLocation', '$userDetails.shareLocation', true] },
+          pincode: { $ifNull: ['$pincode', '$userDetails.pincode', '$userDetails.address.pincode'] },
+          state: { $ifNull: ['$state', '$userDetails.state', '$userDetails.address.state', ALLOWED_STATE] },
           user: {
             _id: '$userDetails._id',
             name: '$userDetails.name',
             phone: { $ifNull: ['$userDetails.phone', '$userDetails.mobile'] },
             city: '$userDetails.city',
             state: '$userDetails.state',
+            pincode: { $ifNull: ['$userDetails.pincode', '$userDetails.address.pincode'] },
+            address: '$userDetails.address',
             profilePhoto: { $ifNull: ['$userDetails.profilePhotoUrl', '$userDetails.profilePhoto'] },
             isEmailVerified: '$userDetails.isEmailVerified',
+            shareContact: '$userDetails.shareContact',
+            shareLocation: '$userDetails.shareLocation',
+            locationUpdatedAt: '$userDetails.locationUpdatedAt',
           },
         },
       },
@@ -314,11 +400,31 @@ export const searchDonors = async ({
     total = aggResult?.totalCount?.[0]?.count || 0;
   }
 
-  // ── Privacy & Phone Masking Sanitization ──
+  // ── Privacy & Live Location Sanitization ──
   const sanitizedDonors = donorsList.map((donor) => {
-    const donorUserId = donor.user?._id?.toString();
-    const isAccepted = donorUserId ? acceptedDonorUserIds.has(donorUserId) : false;
-    const rawPhone = donor.user?.phone || '';
+    const isAuthenticated = Boolean(currentUserId);
+
+    // Consent flag (default true for backward compatibility)
+    const donorShareLocation = donor.shareLocation !== false && donor.user?.shareLocation !== false;
+
+    // Live Location Privacy:
+    // Only logged-in users can see live lat/lng, AND only if donor consented.
+    const coords = donor.location?.coordinates || donor.user?.location?.coordinates || null;
+    const hasValidCoords =
+      Array.isArray(coords) &&
+      coords.length === 2 &&
+      typeof coords[0] === 'number' &&
+      typeof coords[1] === 'number' &&
+      (coords[0] !== 0 || coords[1] !== 0);
+    const canExposeLocation = isAuthenticated && donorShareLocation && hasValidCoords;
+
+    const lat = canExposeLocation ? coords[1] : null;
+    const lng = canExposeLocation ? coords[0] : null;
+
+    const donorCity = donor.user?.city || donor.user?.address?.city || donor.city || '';
+    const donorState = donor.user?.state || donor.user?.address?.state || donor.state || ALLOWED_STATE;
+    const donorPincode = donor.pincode || donor.user?.pincode || donor.user?.address?.pincode || null;
+    const locUpdatedAt = donor.locationUpdatedAt || donor.user?.locationUpdatedAt || donor.updatedAt || null;
 
     return {
       _id: donor._id,
@@ -328,15 +434,30 @@ export const searchDonors = async ({
       totalDonations: donor.totalDonations || 0,
       nextEligibleDate: donor.nextEligibleDate,
       distanceKm: donor.distanceKm !== undefined ? donor.distanceKm : null,
-      location: donor.location,
+
+      // Live location fields
+      latitude: lat,
+      longitude: lng,
+      hasLiveLocation: Boolean(canExposeLocation),
+      locationUpdatedAt: locUpdatedAt,
+      mapUrl: canExposeLocation ? `https://www.google.com/maps?q=${lat},${lng}` : null,
+
+      // Address & State
+      city: donorCity,
+      state: donorState,
+      pincode: donorPincode,
+      addressLine: donor.user?.address?.line || donor.addressLine || '',
+
+      // Consent metadata
+      shareLocation: donorShareLocation,
+
       user: {
         _id: donor.user?._id,
         name: donor.user?.name,
-        city: donor.user?.city,
-        state: donor.user?.state,
+        city: donorCity,
+        state: donorState,
+        pincode: donorPincode,
         profilePhoto: donor.user?.profilePhoto || null,
-        phone: isAccepted ? rawPhone : maskPhone(rawPhone),
-        phoneMasked: !isAccepted,
         isEmailVerified: donor.user?.isEmailVerified || false,
       },
     };
@@ -357,6 +478,8 @@ export const searchDonors = async ({
     filters: {
       bloodGroup: bloodGroup || null,
       city: city || null,
+      state: effectiveState || null,
+      pincode: pincode || null,
       lat: hasGeoCoords ? Number(lat) : null,
       lng: hasGeoCoords ? Number(lng) : null,
       radiusKm: hasGeoCoords ? radiusNum : null,

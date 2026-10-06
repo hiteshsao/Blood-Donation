@@ -81,6 +81,30 @@ const DonorProfileSchema = new mongoose.Schema(
         default: [0, 0],
       },
     },
+    state: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
+    pincode: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
+    locationUpdatedAt: {
+      type: Date,
+      default: () => new Date(),
+    },
+    shareContact: {
+      type: Boolean,
+      default: true,
+    },
+    shareLocation: {
+      type: Boolean,
+      default: true,
+    },
   },
   {
     timestamps: true,

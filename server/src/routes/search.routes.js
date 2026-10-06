@@ -88,6 +88,12 @@ router.get(
       .isIn(validBloodGroups)
       .withMessage(`bloodGroup must be one of: ${validBloodGroups.join(', ')}`),
     query('city').optional().trim(),
+    query('state').optional().trim(),
+    query('pincode')
+      .optional()
+      .trim()
+      .matches(/^49\d{4}$/)
+      .withMessage('pincode must be a 6-digit Chhattisgarh pincode starting with 49 (490001-497778)'),
     query('lat')
       .optional()
       .isFloat({ min: -90, max: 90 })

@@ -11,11 +11,13 @@ import {
  */
 export const getDonors = async (req, res, next) => {
   try {
-    const { bloodGroup, city, lat, lng, radiusKm, page, limit } = req.query;
+    const { bloodGroup, city, state, pincode, lat, lng, radiusKm, page, limit } = req.query;
 
     const result = await searchDonors({
       bloodGroup,
       city,
+      state,
+      pincode,
       lat: lat !== undefined ? Number(lat) : undefined,
       lng: lng !== undefined ? Number(lng) : undefined,
       radiusKm: radiusKm !== undefined ? Number(radiusKm) : 50,

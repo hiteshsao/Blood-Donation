@@ -15,11 +15,52 @@ import {
   AlertCircle,
   Clock,
   AlertTriangle,
+  ExternalLink,
+  Lock,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api, { searchAPI, requestAPI, hospitalAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { Button, Input, Select, StatusBadge, Loader, EmptyState, Modal } from '../components/common';
+
+export const ALLOWED_STATE = 'Chhattisgarh';
+
+export const CHHATTISGARH_DISTRICTS = [
+  { value: '', label: 'All Chhattisgarh Districts' },
+  { value: 'Raipur', label: 'Raipur' },
+  { value: 'Bilaspur', label: 'Bilaspur' },
+  { value: 'Durg', label: 'Durg' },
+  { value: 'Bhilai', label: 'Bhilai' },
+  { value: 'Korba', label: 'Korba' },
+  { value: 'Raigarh', label: 'Raigarh' },
+  { value: 'Rajnandgaon', label: 'Rajnandgaon' },
+  { value: 'Jagdalpur', label: 'Jagdalpur (Bastar)' },
+  { value: 'Ambikapur', label: 'Ambikapur (Surguja)' },
+  { value: 'Mahasamund', label: 'Mahasamund' },
+  { value: 'Dhamtari', label: 'Dhamtari' },
+  { value: 'Kanker', label: 'Kanker' },
+  { value: 'Janjgir-Champa', label: 'Janjgir-Champa' },
+  { value: 'Balod', label: 'Balod' },
+  { value: 'Bemetara', label: 'Bemetara' },
+  { value: 'Kabirdham', label: 'Kabirdham (Kawardha)' },
+  { value: 'Gariaband', label: 'Gariaband' },
+  { value: 'Baloda Bazar', label: 'Baloda Bazar' },
+  { value: 'Mungeli', label: 'Mungeli' },
+  { value: 'Surajpur', label: 'Surajpur' },
+  { value: 'Balrampur', label: 'Balrampur' },
+  { value: 'Jashpur', label: 'Jashpur' },
+  { value: 'Sukma', label: 'Sukma' },
+  { value: 'Bijapur', label: 'Bijapur' },
+  { value: 'Dantewada', label: 'Dantewada' },
+  { value: 'Narayanpur', label: 'Narayanpur' },
+  { value: 'Kondagaon', label: 'Kondagaon' },
+  { value: 'Gaurela-Pendra-Marwahi', label: 'Gaurela-Pendra-Marwahi' },
+  { value: 'Khairagarh', label: 'Khairagarh-Chhuikhadan-Gandai' },
+  { value: 'Manendragarh', label: 'Manendragarh-Chirmiri-Bharatpur' },
+  { value: 'Mohla-Manpur', label: 'Mohla-Manpur-Ambagarh Chowki' },
+  { value: 'Sakti', label: 'Sakti' },
+  { value: 'Sarangarh', label: 'Sarangarh-Bilaigarh' },
+];
 
 const BLOOD_GROUPS = [
   { value: '', label: 'All Blood Types' },
@@ -35,71 +76,133 @@ const BLOOD_GROUPS = [
 
 const FALLBACK_DONORS = [
   {
-    _id: 'd-101',
-    user: { name: 'Aakash Verma', city: 'Mumbai', phone: '+91 98765 43210' },
+    _id: 'd-cg-101',
+    user: {
+      name: 'Aman Dewangan',
+      city: 'Raipur',
+      state: 'Chhattisgarh',
+      pincode: '492001',
+    },
     bloodGroup: 'O+',
     isAvailable: true,
     isVerified: true,
-    distanceKm: 1.8,
-    totalDonations: 6,
+    distanceKm: 2.1,
+    totalDonations: 7,
+    city: 'Raipur',
+    state: 'Chhattisgarh',
+    pincode: '492001',
+    latitude: 21.2514,
+    longitude: 81.6296,
+    hasLiveLocation: true,
+    mapUrl: 'https://www.google.com/maps?q=21.2514,81.6296',
+    locationUpdatedAt: new Date(Date.now() - 15 * 60000).toISOString(),
+    shareLocation: true,
   },
   {
-    _id: 'd-102',
-    user: { name: 'Vikram Malhotra', city: 'Mumbai', phone: '+91 98765 43214' },
+    _id: 'd-cg-102',
+    user: {
+      name: 'Pooja Chandrakar',
+      city: 'Bhilai',
+      state: 'Chhattisgarh',
+      pincode: '490006',
+    },
     bloodGroup: 'O-',
     isAvailable: true,
     isVerified: true,
-    distanceKm: 2.4,
+    distanceKm: 3.4,
     universal: true,
-    totalDonations: 8,
+    totalDonations: 9,
+    city: 'Bhilai',
+    state: 'Chhattisgarh',
+    pincode: '490006',
+    latitude: 21.1938,
+    longitude: 81.3509,
+    hasLiveLocation: true,
+    mapUrl: 'https://www.google.com/maps?q=21.1938,81.3509',
+    locationUpdatedAt: new Date(Date.now() - 45 * 60000).toISOString(),
+    shareLocation: true,
   },
   {
-    _id: 'd-103',
-    user: { name: 'Priya Sharma', city: 'Mumbai', phone: '+91 98765 43211' },
+    _id: 'd-cg-103',
+    user: {
+      name: 'Rupesh Sahu',
+      city: 'Bilaspur',
+      state: 'Chhattisgarh',
+      pincode: '495001',
+    },
     bloodGroup: 'A+',
     isAvailable: true,
     isVerified: true,
-    distanceKm: 3.5,
-    totalDonations: 4,
+    distanceKm: 4.8,
+    totalDonations: 5,
+    city: 'Bilaspur',
+    state: 'Chhattisgarh',
+    pincode: '495001',
+    latitude: 22.0797,
+    longitude: 82.1409,
+    hasLiveLocation: true,
+    mapUrl: 'https://www.google.com/maps?q=22.0797,82.1409',
+    locationUpdatedAt: new Date(Date.now() - 120 * 60000).toISOString(),
+    shareLocation: true,
   },
   {
-    _id: 'd-104',
-    user: { name: 'Karan Mehra', city: 'Mumbai', phone: '+91 98765 43215' },
+    _id: 'd-cg-104',
+    user: {
+      name: 'Kavita Patel',
+      city: 'Raigarh',
+      state: 'Chhattisgarh',
+      pincode: '496001',
+    },
     bloodGroup: 'B+',
-    isAvailable: false,
+    isAvailable: true,
     isVerified: true,
-    distanceKm: 5.1,
-    totalDonations: 2,
+    distanceKm: 6.2,
+    totalDonations: 4,
+    city: 'Raigarh',
+    state: 'Chhattisgarh',
+    pincode: '496001',
+    latitude: 21.8974,
+    longitude: 83.3950,
+    hasLiveLocation: true,
+    mapUrl: 'https://www.google.com/maps?q=21.8974,83.3950',
+    locationUpdatedAt: new Date(Date.now() - 180 * 60000).toISOString(),
+    shareLocation: true,
   },
 ];
 
 const FALLBACK_BANKS = [
   {
-    _id: 'bb-101',
-    name: 'RedCross Regional Blood Center',
-    city: 'Mumbai',
-    phone: '+91 98555 55555',
-    address: '45 Bandra West, Near Railway Station',
-    licenseNumber: 'BB-MUM-777',
-    availableUnits: 28,
+    _id: 'bb-cg-101',
+    name: 'Dr. B.R. Ambedkar Memorial Hospital Blood Center',
+    city: 'Raipur',
+    state: 'Chhattisgarh',
+    pincode: '492001',
+    phone: '+91 771 2884000',
+    address: 'Jail Road, Mowa, Raipur, Chhattisgarh',
+    licenseNumber: 'CG-RPR-001',
+    availableUnits: 38,
   },
   {
-    _id: 'bb-102',
-    name: 'Apollo Hospital Blood Bank',
-    city: 'Mumbai',
-    phone: '+91 98444 44444',
-    address: '123 Marine Drive, South Mumbai',
-    licenseNumber: 'HOSP-MUM-999',
-    availableUnits: 16,
+    _id: 'bb-cg-102',
+    name: 'Raigarh District Blood Center',
+    city: 'Raigarh',
+    state: 'Chhattisgarh',
+    pincode: '496001',
+    phone: '+91 7762 222100',
+    address: 'Near District Hospital, Raigarh, Chhattisgarh',
+    licenseNumber: 'CG-RGH-004',
+    availableUnits: 24,
   },
   {
-    _id: 'bb-103',
-    name: 'Civil Hospital Transfusion Unit',
-    city: 'Mumbai',
-    phone: '+91 98222 22222',
-    address: 'Sector 4, Central Health Complex',
-    licenseNumber: 'GOV-MUM-104',
-    availableUnits: 34,
+    _id: 'bb-cg-103',
+    name: 'CIMS Regional Blood Bank',
+    city: 'Bilaspur',
+    state: 'Chhattisgarh',
+    pincode: '495001',
+    phone: '+91 7752 224200',
+    address: 'Sardar Vallabhbhai Patel Hospital Campus, Bilaspur, Chhattisgarh',
+    licenseNumber: 'CG-BIL-002',
+    availableUnits: 31,
   },
 ];
 
@@ -109,6 +212,8 @@ export const FindBloodPage = () => {
   const [activeTab, setActiveTab] = useState('donors'); // 'donors' | 'banks'
   const [bloodGroup, setBloodGroup] = useState('');
   const [city, setCity] = useState('');
+  const [pincode, setPincode] = useState('');
+  const [pincodeError, setPincodeError] = useState('');
   const [radiusKm, setRadiusKm] = useState(25);
 
   const [donors, setDonors] = useState(FALLBACK_DONORS);
@@ -205,7 +310,7 @@ export const FindBloodPage = () => {
         hospitalName: requestForm.hospitalName?.trim() || undefined,
         city: requestForm.city.trim(),
         contactNumber: requestForm.contactNumber.trim() || undefined,
-        contactPhone: requestForm.contactNumber.trim() || undefined,
+
         notes: requestForm.notes.trim() || undefined,
       };
 
@@ -282,14 +387,42 @@ export const FindBloodPage = () => {
     }
   }, [selectedBankId, fetchBankInventory]);
 
+  const formatLocationTime = (dateStr) => {
+    if (!dateStr) return 'Recently';
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return 'Recently';
+      const diffMinutes = Math.floor((Date.now() - d.getTime()) / 60000);
+      if (diffMinutes < 1) return 'Just now';
+      if (diffMinutes < 60) return `${diffMinutes}m ago`;
+      if (diffMinutes < 1440) return `${Math.floor(diffMinutes / 60)}h ago`;
+      return d.toLocaleDateString('en-IN', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return 'Recently';
+    }
+  };
+
   // Search API fetch
   const handleSearch = useCallback(async () => {
+    if (pincode && !/^49\d{4}$/.test(pincode.trim())) {
+      setPincodeError('Pincode must be 6 digits starting with 49 (e.g. 492001)');
+      return;
+    }
+    setPincodeError('');
     setLoading(true);
+
     try {
       if (activeTab === 'donors') {
         const params = {
           bloodGroup: bloodGroup || undefined,
           city: city.trim() || undefined,
+          state: ALLOWED_STATE,
+          pincode: pincode.trim() || undefined,
           radiusKm,
         };
         const res = await searchAPI.getDonors(params);
@@ -300,8 +433,13 @@ export const FindBloodPage = () => {
           // If 0 returned, apply client filter on fallback for smooth presentation
           const filtered = FALLBACK_DONORS.filter((d) => {
             const matchBg = !bloodGroup || d.bloodGroup === bloodGroup;
-            const matchCity = !city || d.user?.city?.toLowerCase().includes(city.toLowerCase());
-            return matchBg && matchCity;
+            const matchCity =
+              !city ||
+              (d.city && d.city.toLowerCase().includes(city.toLowerCase())) ||
+              (d.user?.city && d.user.city.toLowerCase().includes(city.toLowerCase()));
+            const matchPin =
+              !pincode || (d.pincode && d.pincode.startsWith(pincode.trim()));
+            return matchBg && matchCity && matchPin;
           });
           setDonors(filtered);
         }
@@ -309,6 +447,7 @@ export const FindBloodPage = () => {
         const params = {
           bloodGroup: bloodGroup || undefined,
           city: city.trim() || undefined,
+          state: ALLOWED_STATE,
         };
         const res = await searchAPI.getBloodBanks(params);
         const data = res.data?.data || res.data?.bloodBanks || res.data;
@@ -323,10 +462,21 @@ export const FindBloodPage = () => {
       }
     } catch {
       // Local fallback
+      const filtered = FALLBACK_DONORS.filter((d) => {
+        const matchBg = !bloodGroup || d.bloodGroup === bloodGroup;
+        const matchCity =
+          !city ||
+          (d.city && d.city.toLowerCase().includes(city.toLowerCase())) ||
+          (d.user?.city && d.user.city.toLowerCase().includes(city.toLowerCase()));
+        const matchPin =
+          !pincode || (d.pincode && d.pincode.startsWith(pincode.trim()));
+        return matchBg && matchCity && matchPin;
+      });
+      setDonors(filtered);
     } finally {
       setLoading(false);
     }
-  }, [activeTab, bloodGroup, city, radiusKm]);
+  }, [activeTab, bloodGroup, city, pincode, radiusKm]);
 
   useEffect(() => {
     handleSearch();
@@ -374,7 +524,63 @@ export const FindBloodPage = () => {
         </div>
 
         {/* Filter Bar */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-4 gap-4 items-end pt-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-end pt-2">
+          {/* 1. State (Fixed to Chhattisgarh, Read-only/Disabled) */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+              <span>State</span>
+              <span className="text-[10px] font-black text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">CG Dedicated</span>
+            </label>
+            <input
+              type="text"
+              value={ALLOWED_STATE}
+              readOnly
+              disabled
+              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-100 text-slate-700 font-black text-sm cursor-not-allowed select-none"
+            />
+          </div>
+
+          {/* 2. City / District Dropdown (Chhattisgarh Districts) */}
+          <Select
+            label="District / City"
+            value={city}
+            onChange={(e) => setCity(e.target.value)}
+            options={CHHATTISGARH_DISTRICTS}
+          />
+
+          {/* 3. Pincode Input (6 digits starting with 49) */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+              <span>Pincode</span>
+              <span className="text-[10px] font-bold text-slate-400">49xxxx</span>
+            </label>
+            <input
+              type="text"
+              maxLength={6}
+              placeholder="e.g. 492001"
+              value={pincode}
+              onChange={(e) => {
+                const val = e.target.value.replace(/\D/g, '');
+                setPincode(val);
+                if (val && !val.startsWith('49')) {
+                  setPincodeError('Must start with 49');
+                } else if (val.length === 6 && !/^49\d{4}$/.test(val)) {
+                  setPincodeError('Invalid CG PIN');
+                } else {
+                  setPincodeError('');
+                }
+              }}
+              className={`w-full px-3.5 py-2.5 rounded-xl border text-sm font-semibold focus:outline-none focus:ring-2 ${pincodeError
+                ? 'border-rose-400 focus:ring-rose-500'
+                : 'border-slate-200 focus:ring-red-500'
+                }`}
+            />
+            {pincodeError && (
+              <p className="text-[10px] font-bold text-rose-600 mt-1">{pincodeError}</p>
+            )}
+          </div>
+
+          {/* 4. Target Blood Group */}
           <Select
             label="Target Blood Group"
             value={bloodGroup}
@@ -382,38 +588,34 @@ export const FindBloodPage = () => {
             options={BLOOD_GROUPS}
           />
 
-          <Input
-            label="City / District"
-            value={city}
-            placeholder="Enter your city or district"
-            onChange={(e) => setCity(e.target.value)}
-          />
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex justify-between">
-              <span>Radius Filter</span>
+          {/* 5. Radius Filter & Apply */}
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between text-xs font-bold text-slate-700 uppercase tracking-wider">
+              <span>Radius</span>
               <span className="text-[#C62828] font-black">{radiusKm} km</span>
-            </label>
-            <input
-              type="range"
-              min="5"
-              max="100"
-              step="5"
-              value={radiusKm}
-              onChange={(e) => setRadiusKm(Number(e.target.value))}
-              className="w-full accent-[#C62828] cursor-pointer mt-2"
-            />
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                min="5"
+                max="100"
+                step="5"
+                value={radiusKm}
+                onChange={(e) => setRadiusKm(Number(e.target.value))}
+                className="w-full accent-[#C62828] cursor-pointer"
+              />
+              <Button
+                variant="primary"
+                size="md"
+                onClick={handleSearch}
+                isLoading={loading}
+                leftIcon={<Search className="w-4 h-4" />}
+                className="shrink-0"
+              >
+                Search
+              </Button>
+            </div>
           </div>
-
-          <Button
-            variant="primary"
-            size="md"
-            onClick={handleSearch}
-            isLoading={loading}
-            leftIcon={<Search className="w-4 h-4" />}
-          >
-            Apply Filters
-          </Button>
         </div>
       </div>
 
@@ -452,24 +654,27 @@ export const FindBloodPage = () => {
         </div>
 
         <span className="text-xs font-bold text-slate-400 hidden sm:block">
-          {city ? `Location: ${city}` : 'National Search'}
+          {`State: ${ALLOWED_STATE}`}{city ? ` • ${city}` : ''}{pincode ? ` • PIN: ${pincode}` : ''}
         </span>
       </div>
 
       {/* Results Content */}
       {loading ? (
         <div className="py-20 flex justify-center">
-          <Loader message="Scanning real-time donor coordinates and inventory..." />
+          <Loader message="Scanning real-time donor coordinates and inventory in Chhattisgarh..." />
         </div>
       ) : activeTab === 'donors' ? (
         // ── DONORS RESULTS ──
         donors.length === 0 ? (
           <EmptyState
             title="No Matching Donors Nearby"
-            description={`No available ${bloodGroup || ''} donors found in ${city} within ${radiusKm}km.`}
+            description={`No available ${bloodGroup || ''} donors found in ${city || 'Chhattisgarh'} within ${radiusKm}km.`}
             actionLabel="Reset Filters"
             onAction={() => {
               setBloodGroup('');
+              setCity('');
+              setPincode('');
+              setPincodeError('');
               setRadiusKm(50);
             }}
           />
@@ -480,35 +685,94 @@ export const FindBloodPage = () => {
                 key={d._id || d.id}
                 className="bg-white rounded-3xl border border-red-100 p-6 shadow-sm hover:shadow-md hover:border-red-200 transition-all flex flex-col justify-between"
               >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex items-center gap-3.5">
-                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-[#991B1B] to-[#C62828] text-white font-black text-sm flex items-center justify-center shadow-md shadow-red-900/20 shrink-0">
-                      {d.bloodGroup}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-base font-black text-slate-900">
-                          {d.user?.name || 'Verified Voluntary Donor'}
-                        </h4>
-                        {d.universal && (
-                          <span className="text-[10px] font-black text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
-                            Universal O-
-                          </span>
-                        )}
+                <div>
+                  {/* Top Header: Blood Group, Name, Universal badge, Availability badge */}
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-[#991B1B] to-[#C62828] text-white font-black text-sm flex items-center justify-center shadow-md shadow-red-900/20 shrink-0">
+                        {d.bloodGroup}
                       </div>
-                      <p className="text-xs text-slate-500 font-medium flex items-center gap-1 mt-0.5">
-                        <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                        {d.user?.city || city || 'Mumbai'}
-                        {d.distanceKm && (
-                          <span className="text-[#C62828] font-bold">({d.distanceKm} km away)</span>
-                        )}
-                      </p>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-base font-black text-slate-900">
+                            {d.user?.name || 'Verified Voluntary Donor'}
+                          </h4>
+                          {d.universal && (
+                            <span className="text-[10px] font-black text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
+                              Universal O-
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500 font-medium flex items-center gap-1 mt-0.5">
+                          <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                          <span>
+                            {d.city || d.user?.city || 'Chhattisgarh'}, {d.state || d.user?.state || ALLOWED_STATE}
+                          </span>
+                          {d.distanceKm && (
+                            <span className="text-[#C62828] font-bold">({d.distanceKm} km away)</span>
+                          )}
+                        </p>
+                      </div>
                     </div>
+
+                    <StatusBadge status={d.isAvailable ? 'ACTIVE' : 'INACTIVE'} size="xs" />
                   </div>
 
-                  <StatusBadge status={d.isAvailable ? 'ACTIVE' : 'INACTIVE'} size="xs" />
+                  {/* Donor Info Section: Live Location, Google Map Link, Pincode */}
+                  <div className="mt-4 p-3.5 rounded-2xl bg-slate-50/80 border border-slate-100 text-xs">
+                    {/* Live Location & Google Maps Link + Pincode */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="space-y-0.5">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                          Live Location
+                        </span>
+                        {user ? (
+                          d.latitude && d.longitude ? (
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-semibold text-slate-800">
+                                {d.addressLine || `${d.city || d.user?.city || 'Raipur'}, CG`}
+                              </span>
+                              <a
+                                href={d.mapUrl || `https://www.google.com/maps?q=${d.latitude},${d.longitude}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 font-black text-red-600 hover:text-red-700 hover:underline bg-red-50 hover:bg-red-100 border border-red-200 px-2 py-0.5 rounded-lg transition-colors text-[11px]"
+                              >
+                                <ExternalLink className="w-3 h-3" />
+                                <span>View on Map</span>
+                              </a>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 font-medium italic">
+                              Location not available
+                            </span>
+                          )
+                        ) : (
+                          <span className="text-slate-400 font-medium italic flex items-center gap-1">
+                            <Lock className="w-3 h-3 text-slate-400" />
+                            <span>Log in to view live location</span>
+                          </span>
+                        )}
+                        <span className="text-[10px] text-slate-400 flex items-center gap-1 pt-0.5">
+                          <Clock className="w-3 h-3 text-slate-400" />
+                          Last updated: {formatLocationTime(d.locationUpdatedAt)}
+                        </span>
+                      </div>
+
+                      {/* 2. Pincode Badge */}
+                      <div className="text-right shrink-0">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                          Pincode
+                        </span>
+                        <span className="inline-block mt-0.5 px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-700 font-black text-[11px]">
+                          {d.pincode || d.user?.pincode ? `PIN: ${d.pincode || d.user?.pincode}` : 'Pincode not available'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
+                {/* Bottom Bar: Total Donations + Request Blood button */}
                 <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between gap-2">
                   <div className="text-xs text-slate-500 font-medium">
                     <span className="font-bold text-slate-800">{d.totalDonations || 4}</span> verified donations
@@ -599,8 +863,8 @@ export const FindBloodPage = () => {
                           <div className="flex items-center gap-2.5">
                             <div
                               className={`p-2.5 rounded-xl ${isSelected
-                                  ? 'bg-red-600 text-white'
-                                  : 'bg-red-50 text-[#C62828]'
+                                ? 'bg-red-600 text-white'
+                                : 'bg-red-50 text-[#C62828]'
                                 }`}
                             >
                               <Building2 className="w-5 h-5" />
@@ -630,8 +894,8 @@ export const FindBloodPage = () => {
 
                         <span
                           className={`text-xs font-black px-2.5 py-1 rounded-xl border ${isSelected
-                              ? 'bg-red-600 text-white border-red-600'
-                              : 'bg-slate-100 text-slate-700 border-slate-200'
+                            ? 'bg-red-600 text-white border-red-600'
+                            : 'bg-slate-100 text-slate-700 border-slate-200'
                             }`}
                         >
                           {isSelected ? 'Viewing Stock' : 'View Stock'}
@@ -766,10 +1030,10 @@ export const FindBloodPage = () => {
                             </span>
                             <span
                               className={`text-[10px] font-black px-2 py-0.5 rounded-md ${isOut
-                                  ? 'bg-rose-100 text-rose-700'
-                                  : isLow
-                                    ? 'bg-amber-100 text-amber-800'
-                                    : 'bg-emerald-100 text-emerald-800'
+                                ? 'bg-rose-100 text-rose-700'
+                                : isLow
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-emerald-100 text-emerald-800'
                                 }`}
                             >
                               {isOut ? 'Out of Stock' : isLow ? 'Low Stock' : 'In Stock'}

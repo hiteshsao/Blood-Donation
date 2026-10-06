@@ -13,6 +13,8 @@ export const VALID_STATUS_TRANSITIONS = {
   DONOR_ASSIGNED: ['IN_PROGRESS', 'APPROVED', 'FULFILLED', 'CANCELLED'],
   IN_PROGRESS: ['FULFILLED', 'CANCELLED'],
   FULFILLED: [],
+  RECEIVED: [],
+  TRANSFUSED: [],
   CANCELLED: [],
   REJECTED: [],
 };
@@ -140,23 +142,36 @@ export const createBloodRequest = async (userId, userRole, data) => {
     throw err;
   }
 
-  let hospitalId = data.hospital || data.hospitalId || null;
-  let hospitalName = data.hospitalName || '';
+  let hospitalId = null;
+  let hospitalName = '';
 
-  // Auto-link hospital for HOSPITAL role
+  // Case 1: If created by a user with role HOSPITAL, link their hospitalId automatically
+  // Ignore any hospital name text field provided in this case.
   if (userRole === 'HOSPITAL') {
     const hospital = await Hospital.findOne({
       $or: [{ user: userId }, { createdBy: userId }],
     });
-    if (hospital) {
+    if (!hospital) {
+      const err = new Error('Hospital profile not found for this account.');
+      err.statusCode = 404;
+      throw err;
+    }
+    hospitalId = user.hospitalId || hospital._id;
+    hospitalName = hospital.name;
+  } else {
+    // Case 2: Created by regular USER role
+    const inputHospitalId = data.hospital || data.hospitalId;
+    if (inputHospitalId) {
+      const hospital = await Hospital.findById(inputHospitalId);
+      if (!hospital) {
+        const err = new Error('Selected hospital was not found in the verified registry.');
+        err.statusCode = 400;
+        throw err;
+      }
       hospitalId = hospital._id;
       hospitalName = hospital.name;
-    }
-  } else if (hospitalId) {
-    // If regular user provided hospitalId, resolve hospitalName if missing
-    const hospital = await Hospital.findById(hospitalId);
-    if (hospital && !hospitalName) {
-      hospitalName = hospital.name;
+    } else if (data.hospitalName && data.hospitalName.trim()) {
+      hospitalName = data.hospitalName.trim();
     }
   }
 
@@ -537,13 +552,14 @@ export const confirmReceived = async (requestId, user, { note = '', unitsReceive
     throw err;
   }
 
-  // Check if hospital is linked
+  // Strict ObjectId check for hospital: request.hospital === req.user.hospitalId
   if (user.role === 'HOSPITAL') {
-    const userHospital = await Hospital.findOne({
+    const userHospitalId = user.hospitalId || (await Hospital.findOne({
       $or: [{ user: user._id }, { createdBy: user._id }],
-    });
-    if (!userHospital || userHospital._id.toString() !== request.hospital.toString()) {
-      const err = new Error('You can only confirm units for requests assigned to your hospital');
+    }))?._id;
+
+    if (!userHospitalId || request.hospital.toString() !== userHospitalId.toString()) {
+      const err = new Error('Forbidden: You are not authorized to confirm units for this request. Only the assigned hospital can confirm receipt.');
       err.statusCode = 403;
       throw err;
     }
@@ -564,16 +580,18 @@ export const confirmReceived = async (requestId, user, { note = '', unitsReceive
   const fulfillmentNote =
     note || `Confirmed ${unitsCount} unit(s) of ${request.bloodGroup} received and verified by hospital.`;
 
+  const confirmTime = new Date();
   request.status = 'FULFILLED';
   request.confirmedReceived = true;
-  request.confirmedAt = new Date();
+  request.confirmedAt = confirmTime;
+  request.receivedAt = confirmTime;
   request.confirmedBy = user._id;
 
   request.statusHistory.push({
     status: 'FULFILLED',
     changedBy: user._id,
     note: fulfillmentNote,
-    changedAt: new Date(),
+    changedAt: confirmTime,
   });
 
   await request.save();

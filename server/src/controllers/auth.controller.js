@@ -19,12 +19,14 @@ export const CLEAR_COOKIE_OPTIONS = {
 };
 
 // Helper to issue access (15m) & refresh (7d) tokens
-export const generateTokens = (user) => {
+export const generateTokens = (user, hospitalId = null) => {
+  const hId = hospitalId || user.hospitalId || (user.hospital?._id || user.hospital);
   const payload = {
     id: user._id,
     email: user.email,
     role: user.role,
     name: user.name,
+    ...(hId ? { hospitalId: hId.toString() } : {}),
   };
 
   const accessToken = jwt.sign(
@@ -380,7 +382,17 @@ export const login = async (req, res, next) => {
       });
     }
 
-    const { accessToken, refreshToken } = generateTokens(user);
+    let hospitalDoc = null;
+    if (user.role === 'HOSPITAL') {
+      hospitalDoc = await Hospital.findOne({
+        $or: [{ user: user._id }, { createdBy: user._id }],
+      });
+      if (hospitalDoc) {
+        user.hospitalId = hospitalDoc._id;
+      }
+    }
+
+    const { accessToken, refreshToken } = generateTokens(user, hospitalDoc?._id);
     user.refreshToken = refreshToken;
     user.lastLogin = new Date();
     await user.save();
@@ -392,6 +404,13 @@ export const login = async (req, res, next) => {
     delete userObject.password;
     delete userObject.passwordHash;
     delete userObject.refreshToken;
+
+    if (hospitalDoc) {
+      userObject.hospitalId = hospitalDoc._id;
+      userObject.hospital = hospitalDoc._id;
+      userObject.facility = hospitalDoc;
+      userObject.hospitalName = hospitalDoc.name;
+    }
 
     // Audit: successful login
     auditLog({ action: 'LOGIN_SUCCESS', entity: 'User', entityId: user._id, actor: user._id, req, meta: { email: user.email, role: user.role } });
@@ -745,14 +764,27 @@ export const getMe = async (req, res, next) => {
     if (req.user.role === 'DONOR') {
       donorProfile = await DonorProfile.findOne({ user: req.user._id });
     } else if (req.user.role === 'HOSPITAL') {
-      facility = await Hospital.findOne({ user: req.user._id });
+      facility = await Hospital.findOne({
+        $or: [{ user: req.user._id }, { createdBy: req.user._id }],
+      });
+      if (facility) {
+        req.user.hospitalId = facility._id;
+      }
     } else if (req.user.role === 'BLOOD_BANK') {
       facility = await BloodBank.findOne({ user: req.user._id });
     }
 
+    const userObj = req.user.toObject ? req.user.toObject() : { ...req.user };
+    if (facility && req.user.role === 'HOSPITAL') {
+      userObj.hospitalId = facility._id;
+      userObj.hospital = facility._id;
+      userObj.facility = facility;
+      userObj.hospitalName = facility.name;
+    }
+
     res.status(200).json({
       success: true,
-      user: req.user,
+      user: userObj,
       donorProfile,
       facility,
     });

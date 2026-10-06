@@ -129,6 +129,24 @@ app.use('/api/v1/notifications', notificationRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/v1/hospital', hospitalRoutes);
 app.use('/api/hospital', hospitalRoutes);
+
+// Public / verified hospitals listing for requisition dropdowns
+app.get(['/api/v1/hospitals', '/api/hospitals'], async (req, res, next) => {
+  try {
+    const { Hospital } = await import('./models/Hospital.js');
+    const hospitals = await Hospital.find({
+      $or: [{ isVerified: true }, { verificationStatus: 'VERIFIED' }],
+    })
+      .select('_id name city state address contact phone email')
+      .sort({ name: 1 });
+    res.status(200).json({
+      success: true,
+      hospitals,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 app.use('/api/v1/bloodbank', bloodBankRoutes);
 app.use('/api/bloodbank', bloodBankRoutes);
 app.use('/api/v1/feedback', feedbackRoutes);

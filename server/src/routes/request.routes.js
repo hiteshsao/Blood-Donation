@@ -119,6 +119,8 @@ router.post(
       .toUpperCase()
       .isIn(validUrgencies)
       .withMessage(`urgency must be one of: ${validUrgencies.join(', ')}`),
+    body('hospitalId').optional().trim(),
+    body('hospital').optional().trim(),
     body('hospitalName').optional().trim(),
     body('contactNumber').optional().trim(),
     body('contactPhone').optional().trim(),

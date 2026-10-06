@@ -176,7 +176,7 @@ export const DashboardOverview = () => {
               <div>
                 <h4 className="text-sm font-bold text-slate-900">Blood Requests & Timeline</h4>
                 <p className="text-xs text-slate-500 font-medium mt-0.5">
-                  Track live 5-step clinical fulfillment status and submit requests.
+                  Track live clinical fulfillment status and hospital receipt.
                 </p>
               </div>
             </Link>

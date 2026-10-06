@@ -58,6 +58,16 @@ const BloodRequestSchema = new mongoose.Schema(
       ref: 'Hospital',
       default: null,
       index: true,
+      validate: {
+        validator: function (v) {
+          // If a hospitalName is specified, hospital must be a valid non-null ObjectId reference
+          if (this.hospitalName && this.hospitalName.trim() !== '') {
+            return mongoose.Types.ObjectId.isValid(v) && v !== null;
+          }
+          return true;
+        },
+        message: 'A valid Hospital ObjectId reference is required for hospital-linked blood requests.',
+      },
     },
     hospitalName: {
       type: String,
@@ -102,6 +112,8 @@ const BloodRequestSchema = new mongoose.Schema(
         'DONOR_ASSIGNED',
         'IN_PROGRESS',
         'FULFILLED',
+        'RECEIVED',
+        'TRANSFUSED',
         'COMPLETED',
         'REJECTED',
         'CANCELLED',
@@ -123,6 +135,14 @@ const BloodRequestSchema = new mongoose.Schema(
       index: true,
     },
     confirmedAt: {
+      type: Date,
+      default: null,
+    },
+    receivedAt: {
+      type: Date,
+      default: null,
+    },
+    transfusedAt: {
       type: Date,
       default: null,
     },
@@ -168,12 +188,21 @@ BloodRequestSchema.index({ requester: 1, createdAt: -1 });
 BloodRequestSchema.index({ bloodGroup: 1, city: 1, status: 1 });
 BloodRequestSchema.index({ urgency: 1, status: 1 });
 
-// Synchronize assignedDonors with matchedDonors before save
+// Synchronize assignedDonors with matchedDonors before save, and sync confirmation timestamps
 BloodRequestSchema.pre('save', function (next) {
   if (this.assignedDonors && this.assignedDonors.length > 0 && (!this.matchedDonors || this.matchedDonors.length === 0)) {
     this.matchedDonors = this.assignedDonors;
   } else if (this.matchedDonors && this.matchedDonors.length > 0 && (!this.assignedDonors || this.assignedDonors.length === 0)) {
     this.assignedDonors = this.matchedDonors;
+  }
+
+  // Synchronize receivedAt and confirmedAt
+  if (this.confirmedReceived) {
+    if (!this.receivedAt && this.confirmedAt) {
+      this.receivedAt = this.confirmedAt;
+    } else if (!this.confirmedAt && this.receivedAt) {
+      this.confirmedAt = this.receivedAt;
+    }
   }
   next();
 });

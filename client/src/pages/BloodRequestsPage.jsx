@@ -16,7 +16,7 @@ import {
   Filter,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { requestAPI } from '../services/api';
+import { requestAPI, hospitalAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import {
   Button,
@@ -51,7 +51,8 @@ const STATE_TIMELINE_STEPS = [
   { key: 'APPROVED', label: 'Clinically Cleared', desc: 'Medical verification passed' },
   { key: 'DONOR_ASSIGNED', label: 'Donor Matched', desc: 'Compatible donor assigned' },
   { key: 'IN_PROGRESS', label: 'In Transit', desc: 'Collection or dispatch underway' },
-  { key: 'FULFILLED', label: 'Transfused', desc: 'Unit safely administered' },
+  { key: 'FULFILLED', label: 'Units Issued', desc: 'Blood bank issued units' },
+  { key: 'RECEIVED', label: 'Units Received', desc: 'Hospital confirmed receipt' },
 ];
 
 const FALLBACK_MY_REQUESTS = [
@@ -81,13 +82,17 @@ const FALLBACK_MY_REQUESTS = [
     hospitalName: 'Civil Trauma Center',
     city: 'Mumbai',
     status: 'FULFILLED',
+    confirmedReceived: true,
+    confirmedAt: new Date(Date.now() - 1000 * 60 * 60 * 10).toISOString(),
+    receivedAt: new Date(Date.now() - 1000 * 60 * 60 * 10).toISOString(),
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 48).toISOString(),
     statusHistory: [
       { status: 'PENDING', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 48).toISOString() },
       { status: 'APPROVED', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 40).toISOString() },
       { status: 'DONOR_ASSIGNED', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 30).toISOString() },
       { status: 'IN_PROGRESS', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 20).toISOString() },
-      { status: 'FULFILLED', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 10).toISOString() },
+      { status: 'FULFILLED', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 10).toISOString(), note: 'Blood bank issued units' },
+      { status: 'RECEIVED', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 10).toISOString(), note: 'Hospital confirmed receipt' },
     ],
   },
 ];
@@ -101,6 +106,8 @@ export const BloodRequestsPage = () => {
   ); // 'my' | 'create'
 
   const [myRequests, setMyRequests] = useState(FALLBACK_MY_REQUESTS);
+  const [hospitals, setHospitals] = useState([]);
+  const [loadingHospitals, setLoadingHospitals] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
@@ -112,12 +119,36 @@ export const BloodRequestsPage = () => {
     bloodGroup: searchParams.get('bloodGroup') || 'O+',
     units: 2,
     urgency: searchParams.get('urgency') || 'URGENT',
+    hospitalId: '',
     hospitalName: '',
     city: user?.city || 'Mumbai',
     contactPhone: user?.phone || '',
     requiredBy: '',
     notes: '',
   });
+
+  const fetchHospitals = async () => {
+    setLoadingHospitals(true);
+    try {
+      const res = await hospitalAPI.getVerifiedHospitals();
+      const list = res.data?.hospitals || res.data?.data || res.data;
+      if (Array.isArray(list)) {
+        setHospitals(list);
+        if (list.length > 0 && !formData.hospitalId) {
+          setFormData((prev) => ({
+            ...prev,
+            hospitalId: list[0]._id,
+            hospitalName: list[0].name,
+            city: list[0].city || prev.city,
+          }));
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load registered hospitals:', err.message);
+    } finally {
+      setLoadingHospitals(false);
+    }
+  };
 
   const fetchMyRequests = async () => {
     setLoading(true);
@@ -136,6 +167,7 @@ export const BloodRequestsPage = () => {
 
   useEffect(() => {
     fetchMyRequests();
+    fetchHospitals();
   }, []);
 
   useEffect(() => {
@@ -155,10 +187,21 @@ export const BloodRequestsPage = () => {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
+  const handleHospitalSelect = (e) => {
+    const selectedId = e.target.value;
+    const selectedHosp = hospitals.find((h) => h._id === selectedId);
+    setFormData((prev) => ({
+      ...prev,
+      hospitalId: selectedId,
+      hospitalName: selectedHosp ? selectedHosp.name : '',
+      city: selectedHosp?.city || prev.city,
+    }));
+  };
+
   const handleCreateRequest = async (e) => {
     e.preventDefault();
-    if (!formData.patientName || !formData.hospitalName) {
-      toast.error('Patient Name and Hospital Name are required.');
+    if (!formData.patientName || !formData.hospitalId) {
+      toast.error('Patient Name and registered Hospital selection are required.');
       return;
     }
 
@@ -169,6 +212,8 @@ export const BloodRequestsPage = () => {
         bloodGroup: formData.bloodGroup,
         units: Number(formData.units),
         urgency: formData.urgency,
+        hospital: formData.hospitalId,
+        hospitalId: formData.hospitalId,
         hospitalName: formData.hospitalName,
         city: formData.city,
         contactNumber: formData.contactPhone,
@@ -210,17 +255,30 @@ export const BloodRequestsPage = () => {
   };
 
   // Helper for Stepper progression
-  const getStepStatus = (stepKey, currentStatus) => {
+  const getStepStatus = (stepKey, req) => {
+    const currentStatus = typeof req === 'string' ? req : req?.status;
     if (currentStatus === 'CANCELLED' || currentStatus === 'REJECTED') {
       return 'failed';
     }
 
-    const order = ['PENDING', 'APPROVED', 'DONOR_ASSIGNED', 'IN_PROGRESS', 'FULFILLED'];
-    const currentIndex = order.indexOf(currentStatus);
+    const isReceived = Boolean(
+      (typeof req === 'object' && (req?.confirmedReceived || req?.receivedAt)) ||
+      currentStatus === 'RECEIVED'
+    );
+
+    const order = ['PENDING', 'APPROVED', 'DONOR_ASSIGNED', 'IN_PROGRESS', 'FULFILLED', 'RECEIVED'];
+    let effectiveStatus = currentStatus;
+    if (isReceived) {
+      effectiveStatus = 'RECEIVED';
+    }
+
+    const currentIndex = order.indexOf(effectiveStatus);
     const stepIndex = order.indexOf(stepKey);
 
     if (stepIndex < currentIndex) return 'completed';
-    if (stepIndex === currentIndex) return 'current';
+    if (stepIndex === currentIndex) {
+      return (effectiveStatus === 'RECEIVED' || effectiveStatus === 'COMPLETED') ? 'completed' : 'current';
+    }
     return 'upcoming';
   };
 
@@ -301,8 +359,22 @@ export const BloodRequestsPage = () => {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3">
-                    <StatusBadge status={req.status} size="sm" />
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    {Boolean(req.confirmedReceived || req.receivedAt || req.status === 'RECEIVED') && (
+                      <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-300 px-3 py-1 rounded-full shadow-xs">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Received by Hospital</span>
+                        {(req.receivedAt || req.confirmedAt) && (
+                          <span className="text-emerald-600 font-medium">
+                            • {new Date(req.receivedAt || req.confirmedAt).toLocaleDateString()} {new Date(req.receivedAt || req.confirmedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        )}
+                      </span>
+                    )}
+                    <StatusBadge
+                      status={Boolean(req.confirmedReceived || req.receivedAt || req.status === 'RECEIVED') ? 'RECEIVED' : req.status}
+                      size="sm"
+                    />
                     {req.status === 'PENDING' && (
                       <button
                         type="button"
@@ -324,9 +396,9 @@ export const BloodRequestsPage = () => {
                     Clinical State Machine Progression
                   </h4>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 relative">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 relative">
                     {STATE_TIMELINE_STEPS.map((step, idx) => {
-                      const stepState = getStepStatus(step.key, req.status);
+                      const stepState = getStepStatus(step.key, req);
                       return (
                         <div
                           key={step.key}
@@ -394,13 +466,19 @@ export const BloodRequestsPage = () => {
                 onChange={handleChange}
               />
 
-              <Input
-                label="Hospital / Medical Center"
-                name="hospitalName"
-                placeholder="e.g. Apollo Hospital, Room 402"
+              <Select
+                label="Admitted Hospital / Medical Center"
+                name="hospitalId"
                 required
-                value={formData.hospitalName}
-                onChange={handleChange}
+                value={formData.hospitalId}
+                onChange={handleHospitalSelect}
+                options={[
+                  { value: '', label: loadingHospitals ? 'Loading registered hospitals...' : '-- Select Registered Hospital --' },
+                  ...hospitals.map((h) => ({
+                    value: h._id,
+                    label: `${h.name} (${h.city || h.address?.city || 'Hospital'})`,
+                  })),
+                ]}
               />
             </div>
 

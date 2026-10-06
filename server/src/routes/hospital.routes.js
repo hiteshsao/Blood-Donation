@@ -14,7 +14,25 @@ import {
 
 const router = express.Router();
 
-// All hospital routes require valid authentication and VERIFIED hospital status
+// Public / authenticated endpoint to retrieve verified hospitals for request creation dropdown
+router.get('/list', async (req, res, next) => {
+  try {
+    const { Hospital } = await import('../models/index.js');
+    const hospitals = await Hospital.find({
+      $or: [{ isVerified: true }, { verificationStatus: 'VERIFIED' }],
+    })
+      .select('_id name city state address contact phone email')
+      .sort({ name: 1 });
+    res.status(200).json({
+      success: true,
+      hospitals,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// All hospital dashboard routes require valid authentication and VERIFIED hospital status
 router.use(authenticate, requireVerifiedHospital);
 
 /**

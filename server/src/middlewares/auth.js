@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { User } from '../models/User.js';
+import { Hospital } from '../models/Hospital.js';
 
 /**
  * Middleware to authenticate requests via JWT Bearer token
@@ -47,6 +48,20 @@ export const authenticate = async (req, res, next) => {
     }
 
     req.user = user;
+
+    // Automatically resolve and attach hospitalId for HOSPITAL role
+    if (user.role === 'HOSPITAL') {
+      const hospital = await Hospital.findOne({
+        $or: [{ user: user._id }, { createdBy: user._id }],
+      });
+      if (hospital) {
+        req.user.hospitalId = hospital._id;
+        req.hospital = hospital;
+      } else if (decoded.hospitalId) {
+        req.user.hospitalId = decoded.hospitalId;
+      }
+    }
+
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {

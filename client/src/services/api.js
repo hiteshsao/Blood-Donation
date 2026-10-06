@@ -197,6 +197,7 @@ export const hospitalAPI = {
   getRequests: (params) => api.get('/v1/hospital/requests', { params }),
   confirmReceived: (id, data) =>
     api.put(`/v1/requests/${id}/confirm-received`, typeof data === 'string' ? { remarks: data } : data),
+  getVerifiedHospitals: () => api.get('/v1/hospitals'),
 };
 
 // ── 10. BLOOD BANK API (/api/v1/bloodbank) ──

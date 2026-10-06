@@ -108,8 +108,10 @@ export const uploadHospitalLicense = async (hospitalId, licenseDocUrl, licenseNu
 export const getHospitalRequests = async (hospitalId, userId, queryParams = {}) => {
   const { status, bloodGroup, urgency, page = 1, limit = 20 } = queryParams;
 
+  // Strictly enforce exact ObjectId match for the hospital.
+  // Never match by free-text name, requester, or fallback.
   const query = {
-    $or: [{ hospital: hospitalId }, { requester: userId }],
+    hospital: hospitalId,
   };
 
   if (status) query.status = status;
@@ -122,6 +124,7 @@ export const getHospitalRequests = async (hospitalId, userId, queryParams = {}) 
 
   const [requests, total] = await Promise.all([
     BloodRequest.find(query)
+      .populate('hospital', 'name city state contact')
       .populate('requester', 'name email phone')
       .populate('assignedDonors.donor', 'name bloodGroup phone')
       .sort({ createdAt: -1 })
@@ -179,16 +182,18 @@ export const confirmUnitsReceived = async (hospitalId, requestId, userId, detail
   }
 
   const previousStatus = request.status;
+  const confirmTime = new Date();
   request.status = 'FULFILLED';
   request.confirmedReceived = true;
-  request.confirmedAt = new Date();
+  request.confirmedAt = confirmTime;
+  request.receivedAt = confirmTime;
   request.confirmedBy = userId;
 
   request.statusHistory.push({
     status: 'FULFILLED',
     changedBy: userId,
     note: details.remarks || `Hospital confirmed receipt of ${request.units} unit(s) of ${request.bloodGroup}.`,
-    changedAt: new Date(),
+    changedAt: confirmTime,
   });
 
   await request.save();

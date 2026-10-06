@@ -211,7 +211,7 @@ export const HospitalDashboardPage = () => {
     try {
       const res = await hospitalAPI.getRequests();
       const data = res.data?.data || res.data?.requests || res.data;
-      if (Array.isArray(data) && data.length > 0) {
+      if (Array.isArray(data)) {
         setRequests(data);
       }
     } catch {
@@ -524,7 +524,7 @@ export const HospitalDashboardPage = () => {
             <StatCard
               title="Units Fulfilled"
               value={`${fulfilledCount} Completed`}
-              subtitle="Received and transfused"
+              subtitle="Received and verified"
               icon={<CheckCircle2 className="w-5 h-5 text-emerald-600" />}
               color="emerald"
             />
@@ -576,15 +576,25 @@ export const HospitalDashboardPage = () => {
 
                     <div className="flex items-center gap-3">
                       <StatusBadge status={req.status} size="xs" />
-                      {req.status !== 'FULFILLED' && req.status !== 'CANCELLED' && (
-                        <Button
-                          variant="secondary"
-                          size="xs"
-                          onClick={() => handleOpenConfirmModal(req)}
-                        >
-                          Confirm Receipt
-                        </Button>
-                      )}
+                      {(() => {
+                        const currentHospitalId = user?.hospitalId || user?.facility?._id || user?.hospital?._id || user?.hospital;
+                        const reqHospitalId = req.hospital?._id || req.hospital;
+                        const isMyHospitalRequest = Boolean(
+                          currentHospitalId && reqHospitalId && currentHospitalId.toString() === reqHospitalId.toString()
+                        );
+                        if (isMyHospitalRequest && req.status !== 'FULFILLED' && req.status !== 'CANCELLED') {
+                          return (
+                            <Button
+                              variant="secondary"
+                              size="xs"
+                              onClick={() => handleOpenConfirmModal(req)}
+                            >
+                              Confirm Receipt
+                            </Button>
+                          );
+                        }
+                        return null;
+                      })()}
                     </div>
                   </div>
                 ))}
@@ -878,13 +888,17 @@ export const HospitalDashboardPage = () => {
 
                     {/* Action Button: Confirm Units Received */}
                     {(() => {
-                      const isHospitalCreated = Boolean(
-                        req.hospital || req.hospitalName || req.creatorRole === 'HOSPITAL'
+                      // Strictly match logged-in hospital's own ID against request.hospital ObjectId reference
+                      // Never match based on free-text hospital name comparison in UI
+                      const currentHospitalId = user?.hospitalId || user?.facility?._id || user?.hospital?._id || user?.hospital;
+                      const reqHospitalId = req.hospital?._id || req.hospital;
+                      const isMyHospitalRequest = Boolean(
+                        currentHospitalId && reqHospitalId && currentHospitalId.toString() === reqHospitalId.toString()
                       );
                       const isFulfilled = req.status === 'FULFILLED' || req.status === 'COMPLETED';
                       const isConfirmed = Boolean(req.confirmedReceived || req.receivedConfirmedAt);
 
-                      if (isHospitalCreated && isFulfilled && !isConfirmed) {
+                      if (isMyHospitalRequest && isFulfilled && !isConfirmed) {
                         return (
                           <Button
                             variant="primary"

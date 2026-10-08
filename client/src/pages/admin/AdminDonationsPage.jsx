@@ -13,6 +13,30 @@ import toast from 'react-hot-toast';
 import { adminAPI } from '../../services/api';
 import { DataTable, StatusBadge, Button, ConfirmDialog } from '../../components/common';
 
+
+const getDonorName = (d) => d.donorName || d.donor?.name || 'Unknown Donor';
+const getDonorPhone = (d) => d.donorPhone || d.donor?.phone || '';
+const fetchDonations = async () => {
+  setLoading(true);
+  try {
+    const res = await adminAPI.getDonations();
+    const data = res.data?.data || res.data?.donations || res.data;
+    if (Array.isArray(data) && data.length > 0) {
+      setDonations(
+        data.map((d) => ({
+          ...d,
+          donorName: getDonorName(d),
+          donorPhone: getDonorPhone(d),
+        }))
+      );
+    }
+  } catch {
+    // Retain fallback data
+  } finally {
+    setLoading(false);
+  }
+};
+
 const FALLBACK_DONATIONS = [
   {
     _id: 'don-adm-101',
@@ -132,11 +156,12 @@ export const AdminDonationsPage = () => {
       sortable: true,
       render: (row) => (
         <div>
-          <strong className="text-slate-900 font-bold block">{row.donorName}</strong>
-          <span className="text-slate-500 text-[11px]">{row.donorPhone}</span>
+          <strong className="text-slate-900 font-bold block">{getDonorName(row)}</strong>
+          <span className="text-slate-500 text-[11px]">{getDonorPhone(row)}</span>
         </div>
       ),
     },
+
     {
       header: 'Blood Group',
       key: 'bloodGroup',

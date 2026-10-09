@@ -39,11 +39,15 @@ export const SocketProvider = ({ children }) => {
       setIsConnected(true);
       if (user?._id) {
         newSocket.emit('join:user', { userId: user._id });
+        newSocket.emit('join_user_room', user._id);
         if (user.role) {
           newSocket.emit('join:role', { role: user.role });
         }
         if (user.city) {
           newSocket.emit('join:city', { city: user.city });
+        }
+        if (user.bloodGroup) {
+          newSocket.emit('join_group_room', user.bloodGroup);
         }
       }
     });

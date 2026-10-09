@@ -17,6 +17,28 @@ import {
 import { maskPhone } from './search.service.js';
 
 /**
+ * Resolves hospital name from populated hospital, direct property, or bloodRequest notes.
+ *
+ * @param {Object} em
+ * @returns {string}
+ */
+const resolveHospitalName = (em) => {
+  if (em.hospital?.name) return em.hospital.name;
+  if (em.hospitalName) return em.hospitalName;
+  if (em.bloodRequest?.hospitalName) return em.bloodRequest.hospitalName;
+  if (em.bloodRequest?.notes) {
+    const notes = em.bloodRequest.notes;
+    if (notes.startsWith('Hospital: ')) {
+      const content = notes.slice('Hospital: '.length);
+      const dotIdx = content.indexOf('. ');
+      return (dotIdx !== -1 ? content.slice(0, dotIdx) : content).replace(/\.$/, '').trim();
+    }
+  }
+  return '';
+};
+
+
+/**
  * Blood group compatibility map:
  * Keys: Recipient blood group
  * Values: Compatible donor blood groups
@@ -367,10 +389,18 @@ export const createEmergencyRequest = async (userId, data) => {
   const location = parseLocation(data.location || user.location);
 
   // 1. Create linked BloodRequest for record-keeping
+  const rawNotes = data.notes?.trim();
+  const bloodRequestNotes =
+    !hospitalId && hospitalName
+      ? rawNotes
+        ? `Hospital: ${hospitalName}. ${rawNotes}`
+        : `Hospital: ${hospitalName}. Emergency request generated`
+      : rawNotes || 'Emergency request generated';
+
   const bloodRequest = await BloodRequest.create({
     requester: userId,
     hospital: hospitalId,
-    hospitalName,
+    hospitalName: hospitalId ? hospitalName : '',
     patientName,
     bloodGroup,
     units,
@@ -378,7 +408,7 @@ export const createEmergencyRequest = async (userId, data) => {
     urgency: 'EMERGENCY',
     status: 'IN_PROGRESS',
     contactNumber: data.contactNumber?.trim() || user.phone || user.mobile || '',
-    notes: data.notes || 'Emergency request generated',
+    notes: bloodRequestNotes,
     location,
     statusHistory: [
       {
@@ -432,6 +462,10 @@ export const createEmergencyRequest = async (userId, data) => {
   }));
   await emergency.save();
 
+  // Attach hospitalName so socket alert, in-app notify, email payloads, and response JSON have it
+  emergency.hospitalName = hospitalName;
+  emergency.set('hospitalName', hospitalName, { strict: false });
+
   // 5. Notify donors via In-App, Email, and Socket.io
   await notifyMatchedDonors(emergency, matchedDonors);
 
@@ -473,6 +507,7 @@ export const getNearbyEmergencies = async (userId) => {
     })
       .populate('requester', 'name phone mobile city profilePhoto')
       .populate('hospital', 'name address city phone licenseNumber')
+      .populate('bloodRequest', 'hospitalName notes')
       .sort({ createdAt: -1 })
       .limit(20);
 
@@ -480,6 +515,7 @@ export const getNearbyEmergencies = async (userId) => {
       const doc = em.toObject ? em.toObject() : em;
       return {
         ...doc,
+        hospitalName: resolveHospitalName(em),
         distanceKm: 0,
         isCompatible: true,
       };
@@ -500,6 +536,7 @@ export const getNearbyEmergencies = async (userId) => {
   })
     .populate('requester', 'name phone mobile city profilePhoto')
     .populate('hospital', 'name address city phone licenseNumber')
+    .populate('bloodRequest', 'hospitalName notes')
     .sort({ createdAt: -1 });
 
   // Filter emergencies within search radius or where donor was explicitly notified
@@ -524,9 +561,10 @@ export const getNearbyEmergencies = async (userId) => {
         patientName: em.patientName,
         bloodGroup: em.bloodGroup,
         unitsNeeded: em.units,
+        units: em.units,
         acceptedCount,
         city: em.city,
-        hospitalName: em.hospital?.name || em.hospitalName || '',
+        hospitalName: resolveHospitalName(em),
         urgency: em.urgency,
         radiusKm: em.radiusKm,
         createdAt: em.createdAt,
@@ -774,8 +812,11 @@ export const getEmergencyProgress = async (emergencyId) => {
  * @returns {Promise<Object>}
  */
 export const escalateEmergencyRequest = async (emergencyId) => {
-  const emergency = await EmergencyRequest.findById(emergencyId);
+  const emergency = await EmergencyRequest.findById(emergencyId)
+    .populate('hospital', 'name')
+    .populate('bloodRequest', 'hospitalName notes');
   if (!emergency) return null;
+  emergency.hospitalName = resolveHospitalName(emergency);
 
   // Only escalate if still active and not enough acceptances
   const acceptedCount = emergency.notifiedDonors.filter((n) => n.response === 'ACCEPTED').length;

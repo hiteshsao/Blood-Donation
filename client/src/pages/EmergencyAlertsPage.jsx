@@ -7,7 +7,6 @@ import {
   Clock,
   CheckCircle2,
   XCircle,
-  Phone,
   Building2,
   Droplet,
   ArrowRight,
@@ -39,42 +38,11 @@ const BLOOD_GROUPS = [
   { value: 'O-', label: 'O- (Negative)' },
 ];
 
-const DEMO_EMERGENCIES = [
-  {
-    _id: 'em-301',
-    patientName: 'Sunita Patil',
-    bloodGroup: 'O-',
-    units: 2,
-    hospitalName: 'Apollo Emergency Trauma Care',
-    city: 'Mumbai',
-    distanceKm: 2.1,
-    status: 'ACTIVE',
-    urgency: 'CRITICAL',
-    createdAt: new Date(Date.now() - 1000 * 60 * 12).toISOString(),
-    notes: 'Severe post-accident trauma in ICU. Immediate O- units required.',
-    phone: '+91 98444 44444',
-  },
-  {
-    _id: 'em-302',
-    patientName: 'Master Aarav Joshi (Age 7)',
-    bloodGroup: 'B+',
-    units: 1,
-    hospitalName: 'Civil Pediatric Surgery Center',
-    city: 'Mumbai',
-    distanceKm: 4.5,
-    status: 'ACTIVE',
-    urgency: 'CRITICAL',
-    createdAt: new Date(Date.now() - 1000 * 60 * 35).toISOString(),
-    notes: 'Emergency pediatric surgery in progress.',
-    phone: '+91 98222 22222',
-  },
-];
-
 export const EmergencyAlertsPage = () => {
   const { user } = useAuth();
   const { socket, on, off } = useSocket();
 
-  const [emergencies, setEmergencies] = useState(DEMO_EMERGENCIES);
+  const [emergencies, setEmergencies] = useState([]);
   const [loading, setLoading] = useState(false);
   const [activePopupAlert, setActivePopupAlert] = useState(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -87,20 +55,30 @@ export const EmergencyAlertsPage = () => {
     bloodGroup: 'O-',
     units: 2,
     hospitalName: '',
-    city: user?.city || 'Mumbai',
+    city: user?.city || 'Raipur',
     notes: '',
   });
+
+  useEffect(() => {
+    if (user?.city) {
+      setNewEmergency((prev) => ({
+        ...prev,
+        city: prev.city === 'Raipur' || !prev.city ? user.city : prev.city,
+      }));
+    }
+  }, [user]);
 
   const fetchNearbyEmergencies = async () => {
     setLoading(true);
     try {
       const res = await emergencyAPI.getNearby();
-      const data = res.data?.data || res.data?.emergencies || res.data;
-      if (Array.isArray(data) && data.length > 0) {
-        setEmergencies(data);
-      }
-    } catch {
-      // Keep demo list
+      const data = res.data?.emergencies || res.data?.data || (Array.isArray(res.data) ? res.data : []);
+      setEmergencies(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setEmergencies([]);
+      const errMsg =
+        err.response?.data?.message || err.message || 'Failed to fetch emergency broadcasts.';
+      toast.error(errMsg);
     } finally {
       setLoading(false);
     }
@@ -110,35 +88,63 @@ export const EmergencyAlertsPage = () => {
     fetchNearbyEmergencies();
   }, []);
 
+  // ── JOIN BLOOD GROUP ROOM FOR EMERGENCY BROADCASTS ──
+  useEffect(() => {
+    if (!socket || !user?.bloodGroup) return;
+    socket.emit('join_group_room', user.bloodGroup);
+  }, [socket, user?.bloodGroup]);
+
   // ── REAL-TIME SOCKET.IO EMERGENCY POPUP LISTENER ──
   useEffect(() => {
     if (!socket) return;
 
     const handleEmergencyAlert = (data) => {
+      if (!data) return;
+
       const alertPayload = {
-        _id: data.emergencyId || data._id || `em-${Date.now()}`,
+        _id: data.emergencyId || data._id || data.id || `em-${Date.now()}`,
         patientName: data.patientName || 'Emergency Patient',
-        bloodGroup: data.bloodGroup || 'O-',
-        units: data.units || 2,
-        hospitalName: data.hospitalName || data.hospital || 'Central Trauma Center',
-        city: data.city || 'Mumbai',
-        distanceKm: data.distanceKm || 3.2,
-        notes: data.notes || data.message || 'Immediate transfusion required.',
-        createdAt: new Date().toISOString(),
+        bloodGroup: data.bloodGroup || '',
+        units: data.units || data.unitsRequired || 1,
+        hospitalName:
+          data.hospitalName ||
+          (typeof data.hospital === 'object' ? data.hospital?.name : data.hospital) ||
+          '',
+        city: data.city || user?.city || 'Raipur',
+        distanceKm:
+          data.distanceKm !== undefined && data.distanceKm !== null
+            ? data.distanceKm
+            : data.radiusKm !== undefined && data.radiusKm !== null
+            ? data.radiusKm
+            : null,
+        notes: data.notes || data.message || '',
+        urgency: data.urgency || 'CRITICAL',
+        createdAt: data.createdAt || new Date().toISOString(),
       };
 
-      setEmergencies((prev) => [alertPayload, ...prev]);
-      setActivePopupAlert(alertPayload);
+      setEmergencies((prev) => {
+        const exists = prev.some((e) => e._id === alertPayload._id);
+        if (exists) {
+          return prev.map((e) => (e._id === alertPayload._id ? alertPayload : e));
+        }
+        return [alertPayload, ...prev];
+      });
+      setActivePopupAlert((curr) => {
+        if (curr?._id === alertPayload._id) return curr;
+        return alertPayload;
+      });
     };
 
+    on('emergency_alert', handleEmergencyAlert);
     on('emergency:alert', handleEmergencyAlert);
     on('emergency:broadcast', handleEmergencyAlert);
 
     return () => {
+      off('emergency_alert', handleEmergencyAlert);
       off('emergency:alert', handleEmergencyAlert);
       off('emergency:broadcast', handleEmergencyAlert);
     };
-  }, [socket, on, off]);
+  }, [socket, on, off, user?.city]);
 
   const handleRespond = async (emergencyId, responseType) => {
     setActionLoadingId(emergencyId);
@@ -155,16 +161,9 @@ export const EmergencyAlertsPage = () => {
         setActivePopupAlert(null);
       }
     } catch (err) {
-      // Local fallback
-      if (responseType === 'ACCEPTED') {
-        toast.success('🎉 You have accepted! Hospital route coordinates dispatched to your SMS.');
-      } else {
-        toast('Emergency dismissed.');
-      }
-      setEmergencies((prev) => prev.filter((e) => e._id !== emergencyId));
-      if (activePopupAlert?._id === emergencyId) {
-        setActivePopupAlert(null);
-      }
+      const errMsg =
+        err.response?.data?.message || err.message || 'Failed to submit emergency response.';
+      toast.error(errMsg);
     } finally {
       setActionLoadingId(null);
     }
@@ -179,22 +178,33 @@ export const EmergencyAlertsPage = () => {
 
     setIsSubmitting(true);
     try {
-      const res = await emergencyAPI.create({
+      await emergencyAPI.create({
         patientName: newEmergency.patientName,
         bloodGroup: newEmergency.bloodGroup,
-        units: Number(newEmergency.units),
+        units: Number(newEmergency.units) || 1,
         hospitalName: newEmergency.hospitalName,
-        city: newEmergency.city,
+        city: newEmergency.city || user?.city || 'Raipur',
         notes: newEmergency.notes,
       });
 
-      toast.error('🚨 Emergency broadcast dispatched to compatible donors in your radius!', {
+      toast.success('🚨 Emergency broadcast dispatched to compatible donors in your radius!', {
         duration: 6000,
       });
       setCreateModalOpen(false);
       fetchNearbyEmergencies();
     } catch (err) {
-      toast.error(err.response?.data?.message || err.message || 'Failed to dispatch broadcast.');
+      const serverErrors = err.response?.data?.errors;
+      const firstErrorMessage =
+        Array.isArray(serverErrors) && serverErrors.length > 0
+          ? serverErrors[0]?.message || serverErrors[0]?.msg
+          : null;
+
+      toast.error(
+        firstErrorMessage ||
+          err.response?.data?.message ||
+          err.message ||
+          'Failed to dispatch broadcast.'
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -213,7 +223,7 @@ export const EmergencyAlertsPage = () => {
             Live Emergency Blood Transfusion Broadcasts
           </h1>
           <p className="text-xs sm:text-sm text-red-100 font-medium leading-relaxed">
-            Real-time critical requests matched with your registered blood group in {user?.city || 'Mumbai'}.
+            Real-time critical requests matched with your registered blood group in {user?.city || 'Raipur'}.
             Accepting commits your availability to the trauma team.
           </p>
         </div>
@@ -247,7 +257,7 @@ export const EmergencyAlertsPage = () => {
           </div>
         ) : emergencies.length === 0 ? (
           <EmptyState
-            title="No Active Emergencies in Your Area"
+            title="No active emergencies near you"
             description="There are currently no urgent trauma alerts requiring immediate blood units."
             actionLabel="Refresh Live Alerts"
             onAction={fetchNearbyEmergencies}
@@ -268,14 +278,14 @@ export const EmergencyAlertsPage = () => {
                   <div>
                     <div className="flex items-center gap-2">
                       <h4 className="text-lg font-black text-slate-900">{em.patientName}</h4>
-                      <StatusBadge status="CRITICAL" size="xs" />
+                      <StatusBadge status={em.urgency || "CRITICAL"} size="xs" />
                     </div>
                     <p className="text-xs text-slate-500 font-medium flex items-center gap-2 mt-0.5">
                       <Building2 className="w-3.5 h-3.5 text-slate-400" />
-                      <span>{em.hospitalName}</span>
+                      <span>{em.hospitalName || 'Hospital'}</span>
                       <span className="text-slate-300">•</span>
                       <span className="text-[#C62828] font-bold">{em.units} Unit(s) Needed</span>
-                      {em.distanceKm && (
+                      {em.distanceKm !== null && em.distanceKm !== undefined && (
                         <>
                           <span className="text-slate-300">•</span>
                           <span className="font-bold text-slate-600">({em.distanceKm} km away)</span>
@@ -299,8 +309,12 @@ export const EmergencyAlertsPage = () => {
 
               <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-100">
                 <div className="text-xs text-slate-500 font-medium flex items-center gap-1.5">
-                  <Phone className="w-3.5 h-3.5 text-[#C62828]" />
-                  <span>Hospital Direct: <strong>{em.phone || '+91 98000 00000'}</strong></span>
+                  {em.city && (
+                    <>
+                      <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                      <span>{em.city}</span>
+                    </>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2.5 w-full sm:w-auto">
@@ -355,12 +369,15 @@ export const EmergencyAlertsPage = () => {
 
             <p className="text-sm text-slate-600 font-medium leading-relaxed max-w-sm mx-auto">
               Patient <strong className="text-slate-900">{activePopupAlert.patientName}</strong> is in critical
-              condition at <strong className="text-slate-900">{activePopupAlert.hospitalName}</strong> ({activePopupAlert.distanceKm} km away).
+              condition at <strong className="text-slate-900">{activePopupAlert.hospitalName || 'the hospital'}</strong>
+              {activePopupAlert.distanceKm !== null && activePopupAlert.distanceKm !== undefined
+                ? ` (${activePopupAlert.distanceKm} km away)`
+                : ''}.
             </p>
 
             <div className="p-4 rounded-2xl bg-red-50 text-xs text-red-900 text-left font-medium border border-red-200">
               <p><strong>Required:</strong> {activePopupAlert.units} Unit(s) of {activePopupAlert.bloodGroup}</p>
-              <p className="mt-1"><strong>Details:</strong> {activePopupAlert.notes}</p>
+              {activePopupAlert.notes && <p className="mt-1"><strong>Details:</strong> {activePopupAlert.notes}</p>}
             </div>
 
             <div className="pt-4 flex items-center justify-center gap-3">
@@ -368,6 +385,7 @@ export const EmergencyAlertsPage = () => {
                 variant="ghost"
                 size="md"
                 onClick={() => setActivePopupAlert(null)}
+                disabled={actionLoadingId === activePopupAlert._id}
                 className="flex-1"
               >
                 Dismiss
@@ -377,6 +395,7 @@ export const EmergencyAlertsPage = () => {
                 variant="sos"
                 size="md"
                 onClick={() => handleRespond(activePopupAlert._id, 'ACCEPTED')}
+                isLoading={actionLoadingId === activePopupAlert._id}
                 className="flex-1"
               >
                 I Will Donate (Accept)

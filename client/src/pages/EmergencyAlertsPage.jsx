@@ -44,7 +44,6 @@ export const EmergencyAlertsPage = () => {
 
   const [emergencies, setEmergencies] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [activePopupAlert, setActivePopupAlert] = useState(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState(null);
@@ -129,10 +128,6 @@ export const EmergencyAlertsPage = () => {
         }
         return [alertPayload, ...prev];
       });
-      setActivePopupAlert((curr) => {
-        if (curr?._id === alertPayload._id) return curr;
-        return alertPayload;
-      });
     };
 
     on('emergency_alert', handleEmergencyAlert);
@@ -157,9 +152,6 @@ export const EmergencyAlertsPage = () => {
       }
 
       setEmergencies((prev) => prev.filter((e) => e._id !== emergencyId));
-      if (activePopupAlert?._id === emergencyId) {
-        setActivePopupAlert(null);
-      }
     } catch (err) {
       const errMsg =
         err.response?.data?.message || err.message || 'Failed to submit emergency response.';
@@ -344,66 +336,6 @@ export const EmergencyAlertsPage = () => {
           ))
         )}
       </div>
-
-      {/* ── REAL-TIME SOCKET.IO POPUP MODAL ── */}
-      {activePopupAlert && (
-        <Modal
-          isOpen={!!activePopupAlert}
-          onClose={() => setActivePopupAlert(null)}
-          size="md"
-          showCloseButton={false}
-          className="border-4 border-red-500 animate-bounce"
-        >
-          <div className="text-center space-y-4">
-            <div className="w-16 h-16 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto shadow-inner animate-pulse">
-              <AlertTriangle className="w-8 h-8" />
-            </div>
-
-            <span className="px-3 py-1 rounded-full bg-red-600 text-white font-black text-xs uppercase tracking-widest">
-              Live Incoming Emergency Alert
-            </span>
-
-            <h3 className="text-2xl font-black text-slate-900 tracking-tight">
-              Immediate {activePopupAlert.bloodGroup} Blood Needed!
-            </h3>
-
-            <p className="text-sm text-slate-600 font-medium leading-relaxed max-w-sm mx-auto">
-              Patient <strong className="text-slate-900">{activePopupAlert.patientName}</strong> is in critical
-              condition at <strong className="text-slate-900">{activePopupAlert.hospitalName || 'the hospital'}</strong>
-              {activePopupAlert.distanceKm !== null && activePopupAlert.distanceKm !== undefined
-                ? ` (${activePopupAlert.distanceKm} km away)`
-                : ''}.
-            </p>
-
-            <div className="p-4 rounded-2xl bg-red-50 text-xs text-red-900 text-left font-medium border border-red-200">
-              <p><strong>Required:</strong> {activePopupAlert.units} Unit(s) of {activePopupAlert.bloodGroup}</p>
-              {activePopupAlert.notes && <p className="mt-1"><strong>Details:</strong> {activePopupAlert.notes}</p>}
-            </div>
-
-            <div className="pt-4 flex items-center justify-center gap-3">
-              <Button
-                variant="ghost"
-                size="md"
-                onClick={() => setActivePopupAlert(null)}
-                disabled={actionLoadingId === activePopupAlert._id}
-                className="flex-1"
-              >
-                Dismiss
-              </Button>
-
-              <Button
-                variant="sos"
-                size="md"
-                onClick={() => handleRespond(activePopupAlert._id, 'ACCEPTED')}
-                isLoading={actionLoadingId === activePopupAlert._id}
-                className="flex-1"
-              >
-                I Will Donate (Accept)
-              </Button>
-            </div>
-          </div>
-        </Modal>
-      )}
 
       {/* Create Emergency Request Modal */}
       <Modal

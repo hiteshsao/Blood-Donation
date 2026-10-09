@@ -25,10 +25,18 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
 import { StatusBadge, ConfirmDialog } from '../components/common';
+import GlobalEmergencyPopup from '../components/GlobalEmergencyPopup';
 
 export const DashboardLayout = () => {
   const { user, role, logout } = useAuth();
-  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
+  const {
+    notifications,
+    unreadCount,
+    markAsRead,
+    markAllAsRead,
+    browserPermission,
+    requestBrowserPermission,
+  } = useNotifications();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -124,6 +132,19 @@ export const DashboardLayout = () => {
     await logout();
     setLogoutConfirmOpen(false);
     navigate('/login');
+  };
+
+  const handleNotificationClick = (item) => {
+    markAsRead(item._id || item.id);
+    setNotifDropdownOpen(false);
+    if (
+      item.type === 'EMERGENCY' ||
+      item.type === 'EMERGENCY_ALERT' ||
+      item.meta?.emergencyId ||
+      item.emergencyId
+    ) {
+      navigate('/emergency');
+    }
   };
 
   return (
@@ -303,34 +324,65 @@ export const DashboardLayout = () => {
                     )}
                   </div>
 
+                  {browserPermission === 'default' && (
+                    <div className="px-4 py-2 bg-red-50/80 border-b border-red-100 flex items-center justify-between gap-2 text-xs">
+                      <span className="text-slate-700 font-medium text-[11px]">Desktop emergency alerts</span>
+                      <button
+                        type="button"
+                        onClick={requestBrowserPermission}
+                        className="px-2.5 py-1 bg-[#C62828] text-white rounded-lg font-bold text-[10px] hover:bg-red-700 transition-colors shadow-sm"
+                      >
+                        Enable
+                      </button>
+                    </div>
+                  )}
+
                   <div className="max-h-80 overflow-y-auto divide-y divide-slate-50 p-2">
                     {notifications.length === 0 ? (
                       <div className="py-8 text-center text-xs text-slate-400">
                         No notifications yet
                       </div>
                     ) : (
-                      notifications.slice(0, 6).map((item) => (
-                        <div
-                          key={item._id || item.id}
-                          onClick={() => markAsRead(item._id || item.id)}
-                          className={`
-                            p-3 rounded-2xl cursor-pointer transition-colors
-                            ${!item.isRead ? 'bg-red-50/40 hover:bg-red-50' : 'hover:bg-slate-50'}
-                          `}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <h5 className="text-xs font-bold text-slate-900 leading-tight">
-                              {item.title}
-                            </h5>
-                            <span className="text-[10px] text-slate-400 shrink-0">
-                              {item.createdAt ? new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                            </span>
+                      notifications.slice(0, 6).map((item) => {
+                        const isEm =
+                          item.type === 'EMERGENCY' ||
+                          item.type === 'EMERGENCY_ALERT' ||
+                          Boolean(item.meta?.emergencyId || item.emergencyId);
+
+                        return (
+                          <div
+                            key={item._id || item.id}
+                            onClick={() => handleNotificationClick(item)}
+                            className={`
+                              p-3 rounded-2xl cursor-pointer transition-colors
+                              ${
+                                isEm
+                                  ? 'border-l-4 border-red-600 bg-red-50/70 hover:bg-red-50'
+                                  : !item.isRead
+                                  ? 'bg-red-50/40 hover:bg-red-50'
+                                  : 'hover:bg-slate-50'
+                              }
+                            `}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <h5 className={`text-xs font-bold leading-tight ${isEm ? 'text-red-900' : 'text-slate-900'}`}>
+                                {isEm ? '🚨 ' : ''}{item.title}
+                              </h5>
+                              <span className="text-[10px] text-slate-400 shrink-0">
+                                {item.createdAt ? new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-500 mt-1 line-clamp-2 leading-relaxed">
+                              {item.message}
+                            </p>
+                            {isEm && (
+                              <span className="text-[10px] font-bold text-[#C62828] mt-1 inline-block">
+                                Respond to SOS →
+                              </span>
+                            )}
                           </div>
-                          <p className="text-xs text-slate-500 mt-1 line-clamp-2 leading-relaxed">
-                            {item.message}
-                          </p>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
 
@@ -442,6 +494,9 @@ export const DashboardLayout = () => {
         cancelText="Stay Signed In"
         isDestructive={false}
       />
+
+      {/* Global Real-Time Emergency Popup for Donors */}
+      <GlobalEmergencyPopup />
     </div>
   );
 };

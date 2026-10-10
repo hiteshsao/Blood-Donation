@@ -55,6 +55,19 @@ const STATE_TIMELINE_STEPS = [
   { key: 'RECEIVED', label: 'Units Received', desc: 'Hospital confirmed receipt' },
 ];
 
+const EMERGENCY_TIMELINE_STEPS = [
+  { key: 'PENDING', label: 'Submitted', desc: 'Emergency request broadcast' },
+  { key: 'DONOR_ASSIGNED', label: 'Donor Matched', desc: 'Donor accepted your request' },
+  { key: 'FULFILLED', label: 'Donation Completed', desc: 'Donor donation confirmed' },
+];
+
+const isEmergencyRequest = (req) => {
+  if (!req) return false;
+  const urgency = typeof req === 'object' ? req?.urgency : '';
+  const isEmgField = typeof req === 'object' ? req?.isEmergency : false;
+  return String(urgency || '').toUpperCase() === 'EMERGENCY' || Boolean(isEmgField);
+};
+
 const FALLBACK_MY_REQUESTS = [
   {
     _id: 'req-201',
@@ -93,6 +106,22 @@ const FALLBACK_MY_REQUESTS = [
       { status: 'IN_PROGRESS', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 20).toISOString() },
       { status: 'FULFILLED', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 10).toISOString(), note: 'Blood bank issued units' },
       { status: 'RECEIVED', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 10).toISOString(), note: 'Hospital confirmed receipt' },
+    ],
+  },
+  {
+    _id: 'req-203',
+    patientName: 'Aarav Sharma',
+    bloodGroup: 'AB+',
+    units: 1,
+    urgency: 'EMERGENCY',
+    hospitalName: 'Lilavati Trauma Hospital',
+    city: 'Mumbai',
+    status: 'FULFILLED',
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
+    statusHistory: [
+      { status: 'PENDING', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(), note: 'Emergency request broadcast' },
+      { status: 'DONOR_ASSIGNED', timestamp: new Date(Date.now() - 1000 * 60 * 45).toISOString(), note: 'Donor accepted your request' },
+      { status: 'FULFILLED', timestamp: new Date(Date.now() - 1000 * 60 * 15).toISOString(), note: 'Donor donation confirmed' },
     ],
   },
 ];
@@ -261,6 +290,33 @@ export const BloodRequestsPage = () => {
       return 'failed';
     }
 
+    // Emergency Request Workflow (3 steps: PENDING -> DONOR_ASSIGNED -> FULFILLED)
+    if (isEmergencyRequest(req)) {
+      // When emergency is FULFILLED/completed, show ALL steps as green/completed (no step remains red/current)
+      if (
+        currentStatus === 'FULFILLED' ||
+        currentStatus === 'COMPLETED' ||
+        currentStatus === 'RECEIVED' ||
+        req?.confirmedReceived
+      ) {
+        return 'completed';
+      }
+
+      const emergencyOrder = ['PENDING', 'DONOR_ASSIGNED', 'FULFILLED'];
+      let effectiveStatus = currentStatus;
+      if (effectiveStatus === 'IN_PROGRESS' || effectiveStatus === 'APPROVED') {
+        effectiveStatus = 'DONOR_ASSIGNED';
+      }
+
+      const currentIndex = emergencyOrder.indexOf(effectiveStatus);
+      const stepIndex = emergencyOrder.indexOf(stepKey);
+
+      if (stepIndex < currentIndex) return 'completed';
+      if (stepIndex === currentIndex) return 'current';
+      return 'upcoming';
+    }
+
+    // Standard Blood Bank Request Workflow (6 steps)
     const isReceived = Boolean(
       (typeof req === 'object' && (req?.confirmedReceived || req?.receivedAt)) ||
       currentStatus === 'RECEIVED'
@@ -393,49 +449,96 @@ export const BloodRequestsPage = () => {
                 {/* ── INTERACTIVE STATUS TIMELINE STEPPER ── */}
                 <div>
                   <h4 className="text-xs font-black text-slate-400 uppercase tracking-wider mb-4">
-                    Clinical State Machine Progression
+                    {isEmergencyRequest(req)
+                      ? 'Emergency Response Progression'
+                      : 'Clinical State Machine Progression'}
                   </h4>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 relative">
-                    {STATE_TIMELINE_STEPS.map((step, idx) => {
-                      const stepState = getStepStatus(step.key, req);
-                      return (
-                        <div
-                          key={step.key}
-                          className={`
-                            p-3.5 rounded-2xl border text-left flex flex-col justify-between transition-all
-                            ${
-                              stepState === 'completed'
-                                ? 'bg-emerald-50/60 border-emerald-200 text-emerald-900'
-                                : stepState === 'current'
-                                ? 'bg-red-50/70 border-red-300 ring-2 ring-red-100 text-[#C62828]'
-                                : stepState === 'failed'
-                                ? 'bg-slate-50 border-slate-200 opacity-40 text-slate-400'
-                                : 'bg-slate-50/70 border-slate-200 text-slate-400'
-                            }
-                          `}
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-[10px] font-black uppercase">Step {idx + 1}</span>
-                            {stepState === 'completed' ? (
-                              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                            ) : stepState === 'current' ? (
-                              <span className="w-2.5 h-2.5 rounded-full bg-[#C62828] animate-ping" />
-                            ) : (
-                              <span className="w-2 h-2 rounded-full bg-slate-300" />
-                            )}
-                          </div>
+                  {(() => {
+                    const isEmergency = isEmergencyRequest(req);
+                    const steps = isEmergency ? EMERGENCY_TIMELINE_STEPS : STATE_TIMELINE_STEPS;
+                    return (
+                      <div
+                        className={`grid grid-cols-1 ${
+                          isEmergency
+                            ? 'sm:grid-cols-3 lg:grid-cols-3'
+                            : 'sm:grid-cols-2 lg:grid-cols-6'
+                        } gap-3 relative`}
+                      >
+                        {steps.map((step, idx) => {
+                          const stepState = getStepStatus(step.key, req);
+                          const descText =
+                            isEmergency && step.desc === 'Blood bank issued units'
+                              ? 'Donor donation confirmed'
+                              : step.desc;
 
-                          <div>
-                            <h5 className="text-xs font-black leading-snug">{step.label}</h5>
-                            <p className="text-[10px] text-slate-500 font-medium mt-0.5 line-clamp-1">
-                              {step.desc}
-                            </p>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                          return (
+                            <div
+                              key={step.key}
+                              className={`
+                                p-3.5 rounded-2xl border text-left flex flex-col justify-between transition-all
+                                ${
+                                  stepState === 'completed'
+                                    ? 'bg-emerald-50/60 border-emerald-200 text-emerald-900'
+                                    : stepState === 'current'
+                                    ? 'bg-red-50/70 border-red-300 ring-2 ring-red-100 text-[#C62828]'
+                                    : stepState === 'failed'
+                                    ? 'bg-slate-50 border-slate-200 opacity-40 text-slate-400'
+                                    : 'bg-slate-50/70 border-slate-200 text-slate-400'
+                                }
+                              `}
+                            >
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-[10px] font-black uppercase">Step {idx + 1}</span>
+                                {stepState === 'completed' ? (
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                                ) : stepState === 'current' ? (
+                                  <span className="w-2.5 h-2.5 rounded-full bg-[#C62828] animate-ping" />
+                                ) : (
+                                  <span className="w-2 h-2 rounded-full bg-slate-300" />
+                                )}
+                              </div>
+
+                              <div>
+                                <h5 className="text-xs font-black leading-snug">{step.label}</h5>
+                                <p className="text-[10px] text-slate-500 font-medium mt-0.5 line-clamp-1">
+                                  {descText}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+
+                  {/* Status History Note Display if available */}
+                  {req.statusHistory && req.statusHistory.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+                      <div className="flex items-center gap-1.5 font-medium truncate">
+                        <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span>Status Note:</span>
+                        <span className="text-slate-700 font-semibold truncate">
+                          {(() => {
+                            const latest = req.statusHistory[req.statusHistory.length - 1];
+                            const note = latest?.note || latest?.status || '';
+                            if (isEmergencyRequest(req) && note === 'Blood bank issued units') {
+                              return 'Donor donation confirmed';
+                            }
+                            return note;
+                          })()}
+                        </span>
+                      </div>
+                      {req.statusHistory[req.statusHistory.length - 1]?.changedAt || req.statusHistory[req.statusHistory.length - 1]?.timestamp ? (
+                        <span className="text-slate-400 shrink-0 ml-2">
+                          {new Date(
+                            req.statusHistory[req.statusHistory.length - 1]?.changedAt ||
+                            req.statusHistory[req.statusHistory.length - 1]?.timestamp
+                          ).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      ) : null}
+                    </div>
+                  )}
                 </div>
               </div>
             ))

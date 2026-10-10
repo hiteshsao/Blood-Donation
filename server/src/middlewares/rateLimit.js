@@ -38,3 +38,20 @@ export const otpLimiter = rateLimit({
   },
 });
 
+export const emergencyCreateLimiter = rateLimit({
+  windowMs: 24 * 60 * 60 * 1000, // 24 hours
+  max: 3, // 3 requests per user per 24 hours
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => isTest && !req.headers['x-test-rate-limit'],
+  keyGenerator: (req) => req.user?._id?.toString() || req.ip,
+  statusCode: 429,
+  handler: (req, res) => {
+    res.status(429).json({
+      success: false,
+      message: 'Emergency request limit reached: maximum 3 emergency requests allowed per 24 hours.',
+    });
+  },
+});
+
+

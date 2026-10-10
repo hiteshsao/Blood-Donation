@@ -79,7 +79,7 @@ export const respond = async (req, res, next) => {
  */
 export const getProgress = async (req, res, next) => {
   try {
-    const progress = await getEmergencyProgress(req.params.id);
+    const progress = await getEmergencyProgress(req.params.id, req.user);
     res.status(200).json({
       success: true,
       progress,
@@ -142,7 +142,7 @@ export const confirmDonated = async (req, res, next) => {
  */
 export const getMyEmergenciesHandler = async (req, res, next) => {
   try {
-    const emergencies = await getMyEmergencies(req.user._id);
+    const emergencies = await getMyEmergencies(req.user._id, req.user);
     res.status(200).json({
       success: true,
       count: emergencies.length,

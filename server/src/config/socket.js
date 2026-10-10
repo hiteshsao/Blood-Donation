@@ -184,7 +184,7 @@ export const broadcastEmergencyAlert = (emergency, donorUserIds = []) => {
 
   const payload = {
     emergencyId: emergency._id,
-    patientName: emergency.patientName,
+    patientName: (emergency.patientName || 'Emergency Patient').trim().split(' ')[0],
     bloodGroup: emergency.bloodGroup,
     units: emergency.units,
     city: emergency.city,

@@ -25,6 +25,8 @@ const DEMO_LIVE_EMERGENCIES = [
     patientName: 'Sunita Patil (Severe Trauma)',
     bloodGroup: 'O-',
     units: 3,
+    unitsNeeded: 3,
+    donatedCount: 0,
     urgency: 'CRITICAL',
     hospitalName: 'Apollo City Hospital (Emergency Trauma OT)',
     city: 'Mumbai',
@@ -35,6 +37,26 @@ const DEMO_LIVE_EMERGENCIES = [
       { name: 'Aakash Verma', etaMinutes: 12, phone: '+91 98765 43210' },
       { name: 'Vikram Malhotra', etaMinutes: 18, phone: '+91 98765 43214' },
     ],
+    acceptedDonors: [
+      {
+        donorId: 'usr-donor-demo-01',
+        userId: 'usr-donor-demo-01',
+        name: 'Aakash Verma',
+        bloodGroup: 'O-',
+        city: 'Mumbai',
+        status: 'ACCEPTED',
+        state: 'ACCEPTED',
+      },
+      {
+        donorId: 'usr-donor-demo-02',
+        userId: 'usr-donor-demo-02',
+        name: 'Vikram Malhotra',
+        bloodGroup: 'O-',
+        city: 'Mumbai',
+        status: 'ACCEPTED',
+        state: 'ACCEPTED',
+      },
+    ],
     createdAt: new Date(Date.now() - 1000 * 60 * 14).toISOString(),
     notes: 'Massive acute hemorrhage from road accident. Immediate O- units required.',
   },
@@ -43,6 +65,8 @@ const DEMO_LIVE_EMERGENCIES = [
     patientName: 'Master Aarav Joshi (Age 7)',
     bloodGroup: 'B+',
     units: 1,
+    unitsNeeded: 1,
+    donatedCount: 0,
     urgency: 'CRITICAL',
     hospitalName: 'Civil Pediatric Surgery Center',
     city: 'Mumbai',
@@ -50,6 +74,17 @@ const DEMO_LIVE_EMERGENCIES = [
     status: 'ACTIVE',
     respondersCount: 1,
     responders: [{ name: 'Karan Mehra', etaMinutes: 25, phone: '+91 98765 43215' }],
+    acceptedDonors: [
+      {
+        donorId: 'usr-donor-demo-03',
+        userId: 'usr-donor-demo-03',
+        name: 'Karan Mehra',
+        bloodGroup: 'B+',
+        city: 'Mumbai',
+        status: 'ACCEPTED',
+        state: 'ACCEPTED',
+      },
+    ],
     createdAt: new Date(Date.now() - 1000 * 60 * 42).toISOString(),
     notes: 'Pediatric urgent surgery in progress.',
   },
@@ -60,6 +95,7 @@ export const AdminEmergencyPage = () => {
   const [emergencies, setEmergencies] = useState(DEMO_LIVE_EMERGENCIES);
   const [loading, setLoading] = useState(false);
   const [socketConnected, setSocketConnected] = useState(true);
+  const [confirmingDonorId, setConfirmingDonorId] = useState(null);
 
   // Coordinate / Dispatch Modal
   const [assignModalOpen, setAssignModalOpen] = useState(false);
@@ -67,50 +103,35 @@ export const AdminEmergencyPage = () => {
   const [targetBank, setTargetBank] = useState('RedCross Regional Blood Center');
   const [isDispatching, setIsDispatching] = useState(false);
 
-  // Real-time Socket.io listener
-  useEffect(() => {
-    const handleEmergencyAlert = (data) => {
-      toast.error(`🚨 REAL-TIME TRAUMA ALERT: ${data.patientName || 'Emergency Patient'} requires ${data.bloodGroup || 'Blood'}!`, {
-        duration: 7000,
-      });
-      setEmergencies((prev) => [data, ...prev]);
-    };
-
-    const handleEmergencyResponse = (data) => {
-      toast.success(`Donor Accepted Emergency: ${data.donorName || 'A voluntary donor'} is en route!`);
-      setEmergencies((prev) =>
-        prev.map((e) =>
-          e._id === data.emergencyId
-            ? {
-                ...e,
-                respondersCount: (e.respondersCount || 0) + 1,
-                responders: [
-                  ...(e.responders || []),
-                  { name: data.donorName || 'Voluntary Donor', etaMinutes: data.etaMinutes || 15 },
-                ],
-              }
-            : e
-        )
-      );
-    };
-
-    on('emergency:alert', handleEmergencyAlert);
-    on('emergency:response', handleEmergencyResponse);
-
-    return () => {
-      off('emergency:alert', handleEmergencyAlert);
-      off('emergency:response', handleEmergencyResponse);
-    };
-  }, [on, off]);
-
-  // Fetch Emergencies
+  // Fetch Emergencies with Real-Time Progress
   const fetchEmergencies = async () => {
     setLoading(true);
     try {
       const res = await emergencyAPI.getNearby();
       const data = res.data?.data || res.data?.emergencies || res.data;
       if (Array.isArray(data) && data.length > 0) {
-        setEmergencies(data);
+        const withProgress = await Promise.all(
+          data.map(async (em) => {
+            const emId = em._id || em.emergencyId;
+            try {
+              const progRes = await emergencyAPI.getProgress(emId);
+              const prog = progRes.data?.progress;
+              if (prog) {
+                return {
+                  ...em,
+                  acceptedDonors: prog.acceptedDonors || [],
+                  donatedCount: prog.donatedCount || 0,
+                  unitsNeeded: prog.unitsNeeded || em.units,
+                  status: prog.status || em.status,
+                };
+              }
+            } catch {
+              // Ignore progress error for single emergency
+            }
+            return em;
+          })
+        );
+        setEmergencies(withProgress);
       }
     } catch {
       // Retain fallback data
@@ -119,9 +140,72 @@ export const AdminEmergencyPage = () => {
     }
   };
 
+  // Real-time Socket.io listener
+  useEffect(() => {
+    const handleEmergencyAlert = (data) => {
+      toast.error(`🚨 REAL-TIME TRAUMA ALERT: ${data.patientName || 'Emergency Patient'} requires ${data.bloodGroup || 'Blood'}!`, {
+        duration: 7000,
+      });
+      fetchEmergencies();
+    };
+
+    const handleEmergencyResponse = (data) => {
+      toast.success(`Donor Accepted Emergency: ${data.donorName || 'A voluntary donor'} is en route!`);
+      fetchEmergencies();
+    };
+
+    const handleProgressUpdate = () => {
+      fetchEmergencies();
+    };
+
+    on('emergency:alert', handleEmergencyAlert);
+    on('emergency_alert', handleEmergencyAlert);
+    on('emergency:response', handleEmergencyResponse);
+    on('donor_accepted', handleProgressUpdate);
+    on('emergency_fulfilled', handleProgressUpdate);
+    on('donor_donated', handleProgressUpdate);
+    on('donation_confirmed', handleProgressUpdate);
+
+    return () => {
+      off('emergency:alert', handleEmergencyAlert);
+      off('emergency_alert', handleEmergencyAlert);
+      off('emergency:response', handleEmergencyResponse);
+      off('donor_accepted', handleProgressUpdate);
+      off('emergency_fulfilled', handleProgressUpdate);
+      off('donor_donated', handleProgressUpdate);
+      off('donation_confirmed', handleProgressUpdate);
+    };
+  }, [on, off]);
+
   useEffect(() => {
     fetchEmergencies();
   }, []);
+
+  const handleConfirmDonatedAdmin = async (emergencyId, donor, patientName) => {
+    const donorId = donor?.donorId || donor?.userId || donor?._id;
+    const donorName = donor?.name || 'this donor';
+
+    if (!window.confirm(`Confirm that ${donorName} has donated blood for ${patientName}?`)) {
+      return;
+    }
+
+    const key = `${emergencyId}-${donorId}`;
+    setConfirmingDonorId(key);
+    try {
+      const res = await emergencyAPI.confirmDonated(emergencyId, donorId);
+      toast.success(res.data?.message || 'Donation confirmed! Records updated.');
+      await fetchEmergencies();
+    } catch (err) {
+      const errMsg =
+        err.response?.data?.message ||
+        err.response?.data?.error ||
+        err.message ||
+        'Failed to confirm donation.';
+      toast.error(errMsg);
+    } finally {
+      setConfirmingDonorId(null);
+    }
+  };
 
   const handleOpenAssignModal = (emg) => {
     setSelectedEmergency(emg);
@@ -299,6 +383,70 @@ export const AdminEmergencyPage = () => {
               ) : (
                 <div className="p-3 rounded-xl bg-slate-800/40 border border-slate-800 text-xs text-slate-400 italic">
                   Awaiting donor check-in or blood bank driver confirmation.
+                </div>
+              )}
+            </div>
+
+            {/* Accepted Donors List (Admin Fallback Confirmation) */}
+            <div className="space-y-2 pt-3 border-t border-slate-800">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider block">
+                  Accepted Voluntary Donors ({emg.acceptedDonors?.length || 0})
+                </span>
+                <span className="text-[11px] text-slate-400 font-medium">
+                  {emg.donatedCount || 0} / {emg.unitsNeeded || emg.units} units confirmed donated
+                </span>
+              </div>
+
+              {!emg.acceptedDonors || emg.acceptedDonors.length === 0 ? (
+                <div className="p-3 rounded-xl bg-slate-800/40 border border-slate-800 text-xs text-slate-400 italic">
+                  Awaiting voluntary donors to accept this broadcast.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {emg.acceptedDonors.map((donor) => {
+                    const isDonated = donor.status === 'DONATED' || donor.state === 'DONATED';
+                    const donorId = donor.donorId || donor.userId || donor._id;
+                    const key = `${emg._id}-${donorId}`;
+
+                    return (
+                      <div
+                        key={donorId}
+                        className="p-3 rounded-xl bg-slate-800/80 border border-slate-700/80 flex items-center justify-between text-xs"
+                      >
+                        <div className="space-y-0.5">
+                          <p className="font-bold text-white">{donor.name}</p>
+                          <p className="text-[10px] font-semibold text-red-400">
+                            Blood Group: {donor.bloodGroup} {donor.city ? `• ${donor.city}` : ''}
+                          </p>
+                          <p className="text-[10px] text-slate-400 font-medium">
+                            State: <span className={isDonated ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>{isDonated ? 'Donated' : 'Accepted'}</span>
+                          </p>
+                        </div>
+
+                        <div>
+                          {isDonated ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 text-[11px] font-bold">
+                              <CheckCircle2 className="w-3 h-3" />
+                              Donated
+                            </span>
+                          ) : (
+                            <Button
+                              variant="sos"
+                              size="xs"
+                              onClick={() => handleConfirmDonatedAdmin(emg._id, donor, emg.patientName)}
+                              isLoading={confirmingDonorId === key}
+                              disabled={confirmingDonorId !== null}
+                              className="shadow-sm font-bold text-xs"
+                              leftIcon={<CheckCircle2 className="w-3.5 h-3.5" />}
+                            >
+                              Confirm donated
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

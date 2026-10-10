@@ -51,6 +51,31 @@ const EmergencyRequestSchema = new mongoose.Schema(
       default: 'Emergency Patient',
       trim: true,
     },
+    hospitalName: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    hospitalAddress: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    wardOrRoom: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    contactName: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    contactNumber: {
+      type: String,
+      default: '',
+      trim: true,
+    },
     bloodGroup: {
       type: String,
       enum: ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'],

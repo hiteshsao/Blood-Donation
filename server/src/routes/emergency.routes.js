@@ -2,6 +2,7 @@ import express from 'express';
 import { body, param } from 'express-validator';
 import { authenticate } from '../middlewares/auth.js';
 import { validateRequest } from '../middlewares/validate.js';
+import { emergencyCreateLimiter } from '../middlewares/rateLimit.js';
 import {
   createEmergency,
   getNearby,
@@ -92,6 +93,7 @@ const validBloodGroups = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 router.post(
   '/',
   authenticate,
+  emergencyCreateLimiter,
   [
     body('bloodGroup')
       .trim()
@@ -104,6 +106,20 @@ router.post(
     body('patientName').optional().trim(),
     body('city').optional().trim(),
     body('radiusKm').optional().isFloat({ min: 1, max: 150 }),
+    body('hospitalName').optional().trim(),
+    body('hospitalAddress').optional().trim(),
+    body('wardOrRoom').optional().trim(),
+    body('contactName').optional().trim(),
+    body('contactNumber')
+      .optional({ checkFalsy: true })
+      .trim()
+      .custom((value) => {
+        if (!value) return true;
+        if (!/^[6-9]\d{9}$/.test(value)) {
+          throw new Error('Contact number must be a valid 10-digit Indian mobile number');
+        }
+        return true;
+      }),
     validateRequest,
   ],
   createEmergency
@@ -143,6 +159,7 @@ router.get('/nearby', authenticate, getNearby);
  *         description: Unauthorized
  */
 router.get('/my', authenticate, getMyEmergenciesHandler);
+router.get('/mine', authenticate, getMyEmergenciesHandler);
 
 /**
  * @swagger

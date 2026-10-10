@@ -158,7 +158,10 @@ export const requestAPI = {
 export const emergencyAPI = {
   create: (emergencyData) => api.post('/v1/emergency', emergencyData),
   getNearby: (params) => api.get('/v1/emergency/nearby', { params }),
+  getMy: () => api.get('/v1/emergency/my'),
+  getMine: () => api.get('/v1/emergency/mine'),
   respond: (id, response) => api.post(`/v1/emergency/${id}/respond`, { response }),
+  confirmDonated: (id, donorId) => api.post(`/v1/emergency/${id}/donors/${donorId}/confirm-donated`),
   getProgress: (id) => api.get(`/v1/emergency/${id}/progress`),
   escalate: (id) => api.post(`/v1/emergency/${id}/escalate`),
 };

@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import {
   EmergencyRequest,
   DonorProfile,
@@ -5,6 +6,7 @@ import {
   Notification,
   User,
   Hospital,
+  Donation,
 } from '../models/index.js';
 import { calculateDistanceKm, toGeoJSONPoint } from '../utils/geo.util.js';
 import { sendEmail } from './email.service.js';
@@ -502,7 +504,7 @@ export const getNearbyEmergencies = async (userId) => {
   const donorBloodGroup = donorProfile?.bloodGroup || user.bloodGroup;
   if (!donorBloodGroup) {
     const activeEmergencies = await EmergencyRequest.find({
-      status: 'ACTIVE',
+      status: { $in: ['ACTIVE', 'DONORS_ASSIGNED', 'FULFILLED'] },
       expiresAt: { $gt: new Date() },
     })
       .populate('requester', 'name phone mobile city profilePhoto')
@@ -511,15 +513,30 @@ export const getNearbyEmergencies = async (userId) => {
       .sort({ createdAt: -1 })
       .limit(20);
 
-    return activeEmergencies.map((em) => {
-      const doc = em.toObject ? em.toObject() : em;
-      return {
-        ...doc,
-        hospitalName: resolveHospitalName(em),
-        distanceKm: 0,
-        isCompatible: true,
-      };
-    });
+    return activeEmergencies
+      .map((em) => {
+        const notificationEntry = em.notifiedDonors?.find(
+          (n) => n.donor?.toString() === userId.toString()
+        );
+        const donorResponse = notificationEntry ? notificationEntry.response : 'UNANSWERED';
+        const isCommittedDonor = donorResponse === 'ACCEPTED' || donorResponse === 'DONATED';
+
+        if (em.status === 'DONORS_ASSIGNED' && !isCommittedDonor) return null;
+        if (em.status === 'FULFILLED' && donorResponse !== 'DONATED') return null;
+
+        const doc = em.toObject ? em.toObject() : em;
+        return {
+          ...doc,
+          hospitalName: resolveHospitalName(em),
+          distanceKm: 0,
+          isCompatible: true,
+          donorResponse,
+          status: em.status,
+          acceptedCount: em.notifiedDonors?.filter((n) => n.response === 'ACCEPTED').length || 0,
+          donatedCount: em.notifiedDonors?.filter((n) => n.response === 'DONATED').length || 0,
+        };
+      })
+      .filter(Boolean);
   }
 
   // Determine which recipient blood groups this donor can donate to
@@ -528,9 +545,9 @@ export const getNearbyEmergencies = async (userId) => {
   const donorLocation = donorProfile?.location || user.location;
   const donorCoords = donorLocation?.coordinates || [0, 0];
 
-  // Find all ACTIVE emergencies compatible with this donor
+  // Find all ACTIVE / assigned emergencies compatible with this donor
   const emergencies = await EmergencyRequest.find({
-    status: 'ACTIVE',
+    status: { $in: ['ACTIVE', 'DONORS_ASSIGNED', 'FULFILLED'] },
     bloodGroup: { $in: compatibleRecipientGroups },
     expiresAt: { $gt: new Date() },
   })
@@ -553,8 +570,18 @@ export const getNearbyEmergencies = async (userId) => {
       );
 
       const donorResponse = notificationEntry ? notificationEntry.response : 'UNANSWERED';
+      const isCommittedDonor = donorResponse === 'ACCEPTED' || donorResponse === 'DONATED';
+
+      // Hide filled/assigned requests from uncommitted donors
+      if (em.status === 'DONORS_ASSIGNED' && !isCommittedDonor) {
+        return null;
+      }
+      if (em.status === 'FULFILLED' && donorResponse !== 'DONATED') {
+        return null;
+      }
 
       const acceptedCount = em.notifiedDonors.filter((n) => n.response === 'ACCEPTED').length;
+      const donatedCount = em.notifiedDonors.filter((n) => n.response === 'DONATED').length;
 
       return {
         _id: em._id,
@@ -563,9 +590,11 @@ export const getNearbyEmergencies = async (userId) => {
         unitsNeeded: em.units,
         units: em.units,
         acceptedCount,
+        donatedCount,
         city: em.city,
         hospitalName: resolveHospitalName(em),
         urgency: em.urgency,
+        status: em.status,
         radiusKm: em.radiusKm,
         createdAt: em.createdAt,
         distanceKm,
@@ -573,9 +602,15 @@ export const getNearbyEmergencies = async (userId) => {
         isNotified: Boolean(notificationEntry),
       };
     })
+    .filter(Boolean)
     .filter((em) => {
-      // Include if donor was explicitly notified OR within radius
-      return em.isNotified || em.distanceKm <= em.radiusKm;
+      // Include if donor was explicitly notified OR within radius OR already committed
+      return (
+        em.isNotified ||
+        em.distanceKm <= em.radiusKm ||
+        em.donorResponse === 'ACCEPTED' ||
+        em.donorResponse === 'DONATED'
+      );
     })
     .sort((a, b) => a.distanceKm - b.distanceKm);
 
@@ -585,7 +620,8 @@ export const getNearbyEmergencies = async (userId) => {
 /**
  * POST /api/v1/emergency/:id/respond
  * Donor responds: { response: 'ACCEPTED' | 'REJECTED' }
- * Auto-marks FULFILLED when accepted donors >= units needed.
+ * When acceptedCount + donatedCount >= units, marks DONORS_ASSIGNED (does NOT mark FULFILLED).
+ * Re-opens to ACTIVE if a donor cancels acceptance and acceptedCount + donatedCount < units.
  *
  * @param {string} emergencyId
  * @param {string} userId
@@ -626,6 +662,21 @@ export const respondToEmergency = async (emergencyId, userId, responseValue) => 
     (n) => n.donor?.toString() === userId.toString()
   );
 
+  if (donorEntry?.response === 'DONATED') {
+    const err = new Error('Your donation has already been confirmed for this emergency');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const wasAccepted = donorEntry && donorEntry.response === 'ACCEPTED';
+
+  // If already at full capacity and an unaccepted donor tries to accept, reject
+  if (emergency.status === 'DONORS_ASSIGNED' && normalizedResponse === 'ACCEPTED' && !wasAccepted) {
+    const err = new Error('All required donors have already been assigned for this emergency');
+    err.statusCode = 400;
+    throw err;
+  }
+
   if (donorEntry) {
     donorEntry.response = normalizedResponse;
     donorEntry.status = normalizedResponse;
@@ -641,94 +692,128 @@ export const respondToEmergency = async (emergencyId, userId, responseValue) => 
     });
   }
 
-  // Count current accepted donors
+  // Count current accepted and donated donors
   const acceptedDonorsList = emergency.notifiedDonors.filter((n) => n.response === 'ACCEPTED');
   const acceptedCount = acceptedDonorsList.length;
+  const donatedCount = emergency.notifiedDonors.filter((n) => n.response === 'DONATED').length;
+  const committedCount = acceptedCount + donatedCount;
 
-  let isFulfilled = false;
+  if (normalizedResponse === 'ACCEPTED') {
+    if (committedCount >= emergency.units) {
+      // Mark as DONORS_ASSIGNED - do NOT mark FULFILLED until blood is actually donated
+      emergency.status = 'DONORS_ASSIGNED';
 
-  // Auto-mark FULFILLED when accepted donors >= units needed
-  if (acceptedCount >= emergency.units) {
-    emergency.status = 'FULFILLED';
-    isFulfilled = true;
-
-    // Fulfill linked BloodRequest if present
-    if (emergency.bloodRequest) {
-      await BloodRequest.findByIdAndUpdate(emergency.bloodRequest, {
-        status: 'FULFILLED',
-        $push: {
-          statusHistory: {
-            status: 'FULFILLED',
-            changedBy: userId,
-            note: `Emergency request fulfilled: ${acceptedCount} donor(s) accepted for ${emergency.units} unit(s).`,
-            changedAt: new Date(),
+      // Notify requester that all required donors have accepted
+      try {
+        await notify({
+          userId: emergency.requester,
+          type: 'DONORS_ASSIGNED',
+          title: '🚨 Emergency Donors Assigned!',
+          message: `${acceptedCount} donor(s) have accepted your emergency request for ${emergency.units} unit(s) of ${emergency.bloodGroup}. Donors are on their way to the hospital.`,
+          channels: ['IN_APP', 'EMAIL'],
+          meta: {
+            emergencyId: emergency._id,
+            acceptedCount,
+            units: emergency.units,
+            bloodGroup: emergency.bloodGroup,
           },
-        },
+        });
+      } catch (e) {
+        console.error('[EmergencyService] Notification failed:', e.message);
+      }
+
+      // Real-time Socket.io events
+      emitToEmergencyRoom(emergency._id, 'emergency_donors_assigned', {
+        emergencyId: emergency._id,
+        acceptedCount,
+        units: emergency.units,
+      });
+      emitToUser(emergency.requester, 'emergency_donors_assigned', {
+        emergencyId: emergency._id,
+        acceptedCount,
+        units: emergency.units,
+      });
+      emitToEmergencyRoom(emergency._id, 'donor_accepted', {
+        emergencyId: emergency._id,
+        donorName: donorUser?.name,
+        acceptedCount,
+        unitsNeeded: emergency.units,
+      });
+      emitToUser(emergency.requester, 'donor_accepted', {
+        emergencyId: emergency._id,
+        donorName: donorUser?.name,
+        acceptedCount,
+        unitsNeeded: emergency.units,
+      });
+    } else {
+      // Notify requester of individual donor acceptance
+      try {
+        await notify({
+          userId: emergency.requester,
+          type: 'DONOR_ACCEPTED_EMERGENCY',
+          title: 'Donor Accepted Your Emergency Request!',
+          message: `${donorUser?.name || 'A voluntary donor'} (${donorUser?.bloodGroup || emergency.bloodGroup}) accepted your emergency request (${acceptedCount}/${emergency.units} units accepted).`,
+          channels: ['IN_APP', 'EMAIL'],
+          meta: {
+            emergencyId: emergency._id,
+            donorId: userId,
+            acceptedCount,
+            units: emergency.units,
+          },
+        });
+      } catch (e) {
+        console.error('[EmergencyService] Notification failed:', e.message);
+      }
+
+      emitToEmergencyRoom(emergency._id, 'donor_accepted', {
+        emergencyId: emergency._id,
+        donorName: donorUser?.name,
+        acceptedCount,
+        unitsNeeded: emergency.units,
+      });
+      emitToUser(emergency.requester, 'donor_accepted', {
+        emergencyId: emergency._id,
+        donorName: donorUser?.name,
+        acceptedCount,
+        unitsNeeded: emergency.units,
       });
     }
+  } else if (normalizedResponse === 'REJECTED') {
+    // If donor was previously accepted and cancelled, reopen to ACTIVE if needed
+    if (wasAccepted) {
+      if (emergency.status === 'DONORS_ASSIGNED' && committedCount < emergency.units) {
+        emergency.status = 'ACTIVE';
 
-    // Notify requester that emergency is completely fulfilled
-    try {
-      await notify({
-        userId: emergency.requester,
-        type: 'EMERGENCY_FULFILLED',
-        title: '🎉 Emergency Blood Request FULFILLED!',
-        message: `All ${emergency.units} required unit(s) of ${emergency.bloodGroup} have been fulfilled by voluntary donors!`,
-        channels: ['IN_APP', 'EMAIL'],
-        meta: {
+        emitToEmergencyRoom(emergency._id, 'emergency_reopened', {
           emergencyId: emergency._id,
           acceptedCount,
-          units: emergency.units,
-          bloodGroup: emergency.bloodGroup,
-        },
-      });
-    } catch (e) {
-      console.error('[EmergencyService] Notification failed:', e.message);
-    }
-
-    // Real-time Socket.io events
-    emitToEmergencyRoom(emergency._id, 'emergency_fulfilled', {
-      emergencyId: emergency._id,
-      acceptedCount,
-      units: emergency.units,
-    });
-    emitToUser(emergency.requester, 'emergency_fulfilled', {
-      emergencyId: emergency._id,
-      acceptedCount,
-      units: emergency.units,
-    });
-  } else if (normalizedResponse === 'ACCEPTED') {
-    // Notify requester that a donor accepted
-    try {
-      await notify({
-        userId: emergency.requester,
-        type: 'DONOR_ACCEPTED_EMERGENCY',
-        title: 'Donor Accepted Your Emergency Request!',
-        message: `${donorUser?.name || 'A voluntary donor'} (${donorUser?.bloodGroup || emergency.bloodGroup}) accepted your emergency request (${acceptedCount}/${emergency.units} units accepted).`,
-        channels: ['IN_APP', 'EMAIL'],
-        meta: {
+          unitsNeeded: emergency.units,
+        });
+        emitToUser(emergency.requester, 'emergency_reopened', {
           emergencyId: emergency._id,
-          donorId: userId,
           acceptedCount,
-          units: emergency.units,
-        },
-      });
-    } catch (e) {
-      console.error('[EmergencyService] Notification failed:', e.message);
-    }
+          unitsNeeded: emergency.units,
+        });
+      }
 
-    emitToEmergencyRoom(emergency._id, 'donor_accepted', {
-      emergencyId: emergency._id,
-      donorName: donorUser?.name,
-      acceptedCount,
-      unitsNeeded: emergency.units,
-    });
-    emitToUser(emergency.requester, 'donor_accepted', {
-      emergencyId: emergency._id,
-      donorName: donorUser?.name,
-      acceptedCount,
-      unitsNeeded: emergency.units,
-    });
+      try {
+        await notify({
+          userId: emergency.requester,
+          type: 'DONOR_REJECTED_EMERGENCY',
+          title: 'Donor Cancelled Acceptance',
+          message: `${donorUser?.name || 'A donor'} cancelled their acceptance for emergency request (${emergency.bloodGroup}, ${emergency.units} units). The request is open again.`,
+          channels: ['IN_APP', 'EMAIL'],
+          meta: {
+            emergencyId: emergency._id,
+            donorId: userId,
+            acceptedCount,
+            units: emergency.units,
+          },
+        });
+      } catch (e) {
+        // silent
+      }
+    }
   }
 
   await emergency.save();
@@ -737,23 +822,355 @@ export const respondToEmergency = async (emergencyId, userId, responseValue) => 
     emergency,
     response: normalizedResponse,
     acceptedCount,
+    donatedCount,
+    unitsNeeded: emergency.units,
+    isFulfilled: emergency.status === 'FULFILLED',
+    isDonorsAssigned: emergency.status === 'DONORS_ASSIGNED',
+  };
+};
+
+/**
+ * POST /api/v1/emergency/:id/donors/:donorId/confirm-donated
+ * Confirms that an accepted donor has completed blood donation.
+ * Creates Donation record, locks donor eligibility (90d male/120d female),
+ * and fulfills emergency + linked BloodRequest if confirmed donated >= units.
+ *
+ * @param {string} emergencyId
+ * @param {string} donorId
+ * @param {Object} currentUser
+ * @returns {Promise<Object>}
+ */
+export const confirmEmergencyDonation = async (emergencyId, donorId, currentUser) => {
+  const emergency = await EmergencyRequest.findById(emergencyId)
+    .populate('hospital', 'name user createdBy')
+    .populate('bloodRequest');
+
+  if (!emergency) {
+    const err = new Error('Emergency request not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  // A donor cannot confirm their own donation
+  if (donorId.toString() === currentUser._id.toString()) {
+    const err = new Error('Donors cannot confirm their own donation');
+    err.statusCode = 403;
+    throw err;
+  }
+
+  // Allowed for: requester of that emergency, linked hospital user, or ADMIN
+  const isRequester = emergency.requester.toString() === currentUser._id.toString();
+  const isAdmin = currentUser.role === 'ADMIN';
+
+  let isLinkedHospital = false;
+  if (currentUser.role === 'HOSPITAL') {
+    if (emergency.hospital) {
+      const hosp = emergency.hospital;
+      if (
+        hosp.user?.toString() === currentUser._id.toString() ||
+        hosp.createdBy?.toString() === currentUser._id.toString()
+      ) {
+        isLinkedHospital = true;
+      }
+    }
+    if (!isLinkedHospital) {
+      const userHosp = await Hospital.findOne({
+        $or: [{ user: currentUser._id }, { createdBy: currentUser._id }],
+      });
+      if (
+        userHosp &&
+        emergency.hospital &&
+        (emergency.hospital._id || emergency.hospital).toString() === userHosp._id.toString()
+      ) {
+        isLinkedHospital = true;
+      }
+    }
+  }
+
+  if (!isRequester && !isAdmin && !isLinkedHospital) {
+    const err = new Error(
+      'Access denied. Only the emergency requester, linked hospital personnel, or admin can confirm donations.'
+    );
+    err.statusCode = 403;
+    throw err;
+  }
+
+  const donorEntry = emergency.notifiedDonors.find(
+    (n) => n.donor?.toString() === donorId.toString()
+  );
+
+  if (!donorEntry) {
+    const err = new Error('Donor not found in emergency notification list');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  if (donorEntry.response === 'DONATED') {
+    const err = new Error('Donation has already been confirmed for this donor');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (donorEntry.response !== 'ACCEPTED') {
+    const err = new Error(
+      `Donor must be in ACCEPTED status to confirm donation (current status: ${donorEntry.response})`
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const donorUser = await User.findById(donorId);
+  if (!donorUser) {
+    const err = new Error('Donor user not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const donorProfile = await DonorProfile.findOne({
+    $or: [{ user: donorId }, { userId: donorId }],
+  });
+
+  const bloodGroup = donorProfile?.bloodGroup || donorUser.bloodGroup || emergency.bloodGroup;
+  const now = new Date();
+  const gapDays = donorUser.gender === 'FEMALE' ? 120 : 90;
+  const nextEligibleDate = new Date(now.getTime() + gapDays * 86400000);
+
+  donorEntry.response = 'DONATED';
+  donorEntry.status = 'DONATED';
+  donorEntry.donatedAt = now;
+
+  const donatedCount = emergency.notifiedDonors.filter((n) => n.response === 'DONATED').length;
+  const isFulfilled = donatedCount >= emergency.units;
+
+  if (isFulfilled) {
+    emergency.status = 'FULFILLED';
+  }
+
+  let donationRecord = null;
+  const session = await mongoose.startSession();
+
+  try {
+    session.startTransaction();
+
+    // 1. Create Donation Record
+    const [donation] = await Donation.create(
+      [
+        {
+          donor: donorUser._id,
+          appointment: null,
+          bloodBank: null,
+          hospital: emergency.hospital?._id || emergency.hospital || null,
+          emergencyRequest: emergency._id,
+          bloodGroup,
+          units: 1,
+          donatedAt: now,
+          verifiedByAdmin: currentUser._id,
+          verificationStatus: 'VERIFIED',
+          remarks: `Emergency donation confirmed for patient ${emergency.patientName}`,
+        },
+      ],
+      { session }
+    );
+    donationRecord = donation;
+
+    // 2. Update DonorProfile eligibility lock
+    if (donorProfile) {
+      donorProfile.lastDonationDate = now;
+      donorProfile.nextEligibleDate = nextEligibleDate;
+      donorProfile.isAvailable = false;
+      donorProfile.totalDonations = (donorProfile.totalDonations || 0) + 1;
+      await donorProfile.save({ session });
+    }
+
+    // 3. Save EmergencyRequest
+    await emergency.save({ session });
+
+    // 4. If fulfilled, update linked BloodRequest
+    if (isFulfilled && emergency.bloodRequest) {
+      const bloodRequestId = emergency.bloodRequest._id || emergency.bloodRequest;
+      await BloodRequest.findByIdAndUpdate(
+        bloodRequestId,
+        {
+          status: 'FULFILLED',
+          $push: {
+            statusHistory: {
+              status: 'FULFILLED',
+              changedBy: currentUser._id,
+              note: `Emergency request fulfilled: ${donatedCount} donor(s) confirmed donated for ${emergency.units} unit(s).`,
+              changedAt: now,
+            },
+          },
+        },
+        { session }
+      );
+    }
+
+    await session.commitTransaction();
+  } catch (transErr) {
+    await session.abortTransaction().catch(() => {});
+    if (
+      transErr.message &&
+      (transErr.message.includes('replica set') ||
+        transErr.message.includes('Transaction numbers are only allowed'))
+    ) {
+      // Standalone MongoDB fallback
+      donationRecord = await Donation.create({
+        donor: donorUser._id,
+        appointment: null,
+        bloodBank: null,
+        hospital: emergency.hospital?._id || emergency.hospital || null,
+        emergencyRequest: emergency._id,
+        bloodGroup,
+        units: 1,
+        donatedAt: now,
+        verifiedByAdmin: currentUser._id,
+        verificationStatus: 'VERIFIED',
+        remarks: `Emergency donation confirmed for patient ${emergency.patientName}`,
+      });
+
+      if (donorProfile) {
+        donorProfile.lastDonationDate = now;
+        donorProfile.nextEligibleDate = nextEligibleDate;
+        donorProfile.isAvailable = false;
+        donorProfile.totalDonations = (donorProfile.totalDonations || 0) + 1;
+        await donorProfile.save();
+      }
+
+      await emergency.save();
+
+      if (isFulfilled && emergency.bloodRequest) {
+        const bloodRequestId = emergency.bloodRequest._id || emergency.bloodRequest;
+        await BloodRequest.findByIdAndUpdate(bloodRequestId, {
+          status: 'FULFILLED',
+          $push: {
+            statusHistory: {
+              status: 'FULFILLED',
+              changedBy: currentUser._id,
+              note: `Emergency request fulfilled: ${donatedCount} donor(s) confirmed donated for ${emergency.units} unit(s).`,
+              changedAt: now,
+            },
+          },
+        });
+      }
+    } else {
+      throw transErr;
+    }
+  } finally {
+    session.endSession();
+  }
+
+  // Socket & Notifications
+  if (isFulfilled) {
+    try {
+      await notify({
+        userId: emergency.requester,
+        type: 'EMERGENCY_FULFILLED',
+        title: '🎉 Emergency Blood Request FULFILLED!',
+        message: `All ${emergency.units} required unit(s) of ${emergency.bloodGroup} have been confirmed donated! Thank you to all donors.`,
+        channels: ['IN_APP', 'EMAIL'],
+        meta: {
+          emergencyId: emergency._id,
+          donatedCount,
+          units: emergency.units,
+          bloodGroup: emergency.bloodGroup,
+        },
+      });
+    } catch (e) {
+      console.error('[EmergencyService] Notification failed:', e.message);
+    }
+
+    emitToEmergencyRoom(emergency._id, 'emergency_fulfilled', {
+      emergencyId: emergency._id,
+      donatedCount,
+      units: emergency.units,
+    });
+    emitToUser(emergency.requester, 'emergency_fulfilled', {
+      emergencyId: emergency._id,
+      donatedCount,
+      units: emergency.units,
+    });
+  } else {
+    try {
+      await notify({
+        userId: emergency.requester,
+        type: 'DONOR_DONATED_EMERGENCY',
+        title: 'Donation Confirmed!',
+        message: `${donorUser.name} (${donorUser.bloodGroup || emergency.bloodGroup}) completed donation (${donatedCount}/${emergency.units} units confirmed).`,
+        channels: ['IN_APP', 'EMAIL'],
+        meta: {
+          emergencyId: emergency._id,
+          donorId: donorUser._id,
+          donatedCount,
+          units: emergency.units,
+        },
+      });
+    } catch (e) {
+      console.error('[EmergencyService] Notification failed:', e.message);
+    }
+
+    emitToEmergencyRoom(emergency._id, 'donor_donated', {
+      emergencyId: emergency._id,
+      donorId: donorUser._id,
+      donorName: donorUser.name,
+      donatedCount,
+      units: emergency.units,
+    });
+    emitToUser(emergency.requester, 'donor_donated', {
+      emergencyId: emergency._id,
+      donorId: donorUser._id,
+      donorName: donorUser.name,
+      donatedCount,
+      units: emergency.units,
+    });
+  }
+
+  // Notify donor
+  try {
+    await notify({
+      userId: donorId,
+      type: 'DONATION_CONFIRMED',
+      title: '🎉 Life Saved! Donation Confirmed',
+      message: `Your donation for patient ${emergency.patientName} has been confirmed. Your next eligible date is ${nextEligibleDate.toLocaleDateString()}. Thank you for your service!`,
+      channels: ['IN_APP', 'EMAIL'],
+      meta: {
+        emergencyId: emergency._id,
+        donationId: donationRecord?._id,
+        nextEligibleDate,
+      },
+    });
+  } catch (e) {
+    console.error('[EmergencyService] Donor notification failed:', e.message);
+  }
+
+  emitToUser(donorId, 'donation_confirmed', {
+    emergencyId: emergency._id,
+    donationId: donationRecord?._id,
+    nextEligibleDate,
+  });
+
+  return {
+    emergency,
+    donation: donationRecord,
+    donorId,
+    donatedCount,
     unitsNeeded: emergency.units,
     isFulfilled,
+    status: emergency.status,
   };
 };
 
 /**
  * GET /api/v1/emergency/:id/progress
- * Returns units needed vs accepted and donor breakdown.
+ * Returns units needed vs accepted/donated and donor breakdown without phone numbers.
  *
  * @param {string} emergencyId
  * @returns {Promise<Object>}
  */
 export const getEmergencyProgress = async (emergencyId) => {
   const emergency = await EmergencyRequest.findById(emergencyId)
-    .populate('notifiedDonors.donor', 'name bloodGroup phone mobile city profilePhoto')
-    .populate('requester', 'name email phone city')
-    .populate('hospital', 'name address city phone');
+    .populate('notifiedDonors.donor', 'name bloodGroup city profilePhoto')
+    .populate('requester', 'name email city')
+    .populate('hospital', 'name address city');
 
   if (!emergency) {
     const err = new Error('Emergency request not found');
@@ -764,18 +1181,21 @@ export const getEmergencyProgress = async (emergencyId) => {
   const accepted = [];
   let pendingCount = 0;
   let rejectedCount = 0;
+  let donatedCount = 0;
 
   (emergency.notifiedDonors || []).forEach((item) => {
-    if (item.response === 'ACCEPTED') {
+    if (item.response === 'ACCEPTED' || item.response === 'DONATED') {
       const donorUser = item.donor || {};
+      if (item.response === 'DONATED') donatedCount++;
       accepted.push({
         donorId: donorUser._id,
         name: donorUser.name || 'Anonymous Donor',
         bloodGroup: donorUser.bloodGroup || emergency.bloodGroup,
-        phone: maskPhone(donorUser.phone || donorUser.mobile),
         city: donorUser.city || '',
         distanceKm: item.distanceKm,
         respondedAt: item.respondedAt,
+        donatedAt: item.donatedAt,
+        status: item.response, // 'ACCEPTED' | 'DONATED'
       });
     } else if (item.response === 'REJECTED') {
       rejectedCount++;
@@ -789,7 +1209,8 @@ export const getEmergencyProgress = async (emergencyId) => {
     patientName: emergency.patientName,
     bloodGroup: emergency.bloodGroup,
     unitsNeeded: emergency.units,
-    acceptedCount: accepted.length,
+    acceptedCount: emergency.notifiedDonors.filter((n) => n.response === 'ACCEPTED').length,
+    donatedCount,
     pendingCount,
     rejectedCount,
     totalNotified: emergency.notifiedDonors.length,
@@ -798,11 +1219,44 @@ export const getEmergencyProgress = async (emergencyId) => {
     radiusKm: emergency.radiusKm,
     escalationLevel: emergency.escalationLevel || 0,
     acceptedDonors: accepted,
-    hospitalName: emergency.hospital?.name || emergency.hospitalName || '',
+    hospitalName: emergency.hospital?.name || emergency.hospitalName || resolveHospitalName(emergency) || '',
     city: emergency.city,
     createdAt: emergency.createdAt,
     expiresAt: emergency.expiresAt,
   };
+};
+
+/**
+ * GET /api/v1/emergency/my
+ * Retrieves emergency requests created by the user or hospital with fulfillment progress.
+ *
+ * @param {string} userId
+ * @returns {Promise<Array>}
+ */
+export const getMyEmergencies = async (userId) => {
+  const user = await User.findById(userId);
+  let hospitalId = null;
+  if (user?.role === 'HOSPITAL') {
+    const hospital = await Hospital.findOne({
+      $or: [{ user: userId }, { createdBy: userId }],
+    });
+    if (hospital) hospitalId = hospital._id;
+  }
+
+  const query = hospitalId
+    ? { $or: [{ requester: userId }, { hospital: hospitalId }] }
+    : { requester: userId };
+
+  const emergencies = await EmergencyRequest.find(query)
+    .sort({ createdAt: -1 })
+    .limit(20);
+
+  const list = [];
+  for (const em of emergencies) {
+    const prog = await getEmergencyProgress(em._id);
+    list.push(prog);
+  }
+  return list;
 };
 
 /**
@@ -819,8 +1273,10 @@ export const escalateEmergencyRequest = async (emergencyId) => {
   emergency.hospitalName = resolveHospitalName(emergency);
 
   // Only escalate if still active and not enough acceptances
-  const acceptedCount = emergency.notifiedDonors.filter((n) => n.response === 'ACCEPTED').length;
-  if (emergency.status !== 'ACTIVE' || acceptedCount >= emergency.units) {
+  const committedCount = emergency.notifiedDonors.filter(
+    (n) => n.response === 'ACCEPTED' || n.response === 'DONATED'
+  ).length;
+  if (emergency.status !== 'ACTIVE' || committedCount >= emergency.units) {
     return null;
   }
 

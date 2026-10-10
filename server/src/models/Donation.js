@@ -25,6 +25,12 @@ const DonationSchema = new mongoose.Schema(
       ref: 'Hospital',
       default: null,
     },
+    emergencyRequest: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'EmergencyRequest',
+      default: null,
+      index: true,
+    },
     bloodGroup: {
       type: String,
       enum: ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'],

@@ -6,6 +6,8 @@ import {
   createEmergency,
   getNearby,
   respond,
+  confirmDonated,
+  getMyEmergenciesHandler,
   getProgress,
   triggerEscalation,
 } from '../controllers/emergency.controller.js';
@@ -125,6 +127,22 @@ router.post(
  *         description: Unauthorized
  */
 router.get('/nearby', authenticate, getNearby);
+
+/**
+ * @swagger
+ * /api/v1/emergency/my:
+ *   get:
+ *     summary: Get emergency requests created by authenticated user or hospital with fulfillment progress
+ *     tags: [Emergency]
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of emergency broadcasts created by the user
+ *       401:
+ *         description: Unauthorized
+ */
+router.get('/my', authenticate, getMyEmergenciesHandler);
 
 /**
  * @swagger
@@ -248,6 +266,55 @@ router.post(
     validateRequest,
   ],
   triggerEscalation
+);
+
+/**
+ * @swagger
+ * /api/v1/emergency/{id}/donors/{donorId}/confirm-donated:
+ *   post:
+ *     summary: Confirm donor completed their emergency blood donation
+ *     description: >
+ *       Allows the emergency requester, linked hospital user, or ADMIN to confirm that an
+ *       accepted donor completed their blood donation.
+ *       Creates a verified Donation record, updates the donor's lastDonationDate & nextEligibleDate
+ *       (eligibility lock: 90 days for male, 120 days for female), and if all required units are donated,
+ *       marks the emergency request and linked BloodRequest as FULFILLED.
+ *       A donor cannot confirm their own donation.
+ *     tags: [Emergency]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: EmergencyRequest ObjectId
+ *       - in: path
+ *         name: donorId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: User ObjectId of the donor
+ *     responses:
+ *       200:
+ *         description: Donation confirmed and fulfillment evaluated
+ *       400:
+ *         description: Donor not accepted or already confirmed
+ *       403:
+ *         description: Unauthorized (donor confirming self or unauthorized requester)
+ *       404:
+ *         description: Emergency request or donor not found
+ */
+router.post(
+  '/:id/donors/:donorId/confirm-donated',
+  authenticate,
+  [
+    param('id').isMongoId().withMessage('Invalid emergency ID format'),
+    param('donorId').isMongoId().withMessage('Invalid donor ID format'),
+    validateRequest,
+  ],
+  confirmDonated
 );
 
 export default router;

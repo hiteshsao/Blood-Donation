@@ -2,6 +2,8 @@ import {
   createEmergencyRequest,
   getNearbyEmergencies,
   respondToEmergency,
+  confirmEmergencyDonation,
+  getMyEmergencies,
   getEmergencyProgress,
   escalateEmergencyRequest,
 } from '../services/emergency.service.js';
@@ -110,3 +112,44 @@ export const triggerEscalation = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * POST /api/v1/emergency/:id/donors/:donorId/confirm-donated
+ * Confirms that an accepted donor completed blood donation.
+ */
+export const confirmDonated = async (req, res, next) => {
+  try {
+    const result = await confirmEmergencyDonation(
+      req.params.id,
+      req.params.donorId,
+      req.user
+    );
+    res.status(200).json({
+      success: true,
+      message: result.isFulfilled
+        ? 'Donation confirmed! Emergency request has been completely fulfilled.'
+        : `Donation confirmed (${result.donatedCount}/${result.unitsNeeded} units donated).`,
+      ...result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/v1/emergency/my
+ * Returns emergency requests created by authenticated user/hospital with progress.
+ */
+export const getMyEmergenciesHandler = async (req, res, next) => {
+  try {
+    const emergencies = await getMyEmergencies(req.user._id);
+    res.status(200).json({
+      success: true,
+      count: emergencies.length,
+      emergencies,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+

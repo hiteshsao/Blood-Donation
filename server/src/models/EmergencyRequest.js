@@ -8,12 +8,16 @@ const NotifiedDonorSchema = new mongoose.Schema({
   },
   response: {
     type: String,
-    enum: ['PENDING', 'ACCEPTED', 'REJECTED', 'NOTIFIED'],
+    enum: ['PENDING', 'ACCEPTED', 'REJECTED', 'NOTIFIED', 'DONATED', 'NO_SHOW'],
     default: 'PENDING',
   },
   status: {
     type: String, // alias
     default: 'PENDING',
+  },
+  donatedAt: {
+    type: Date,
+    default: null,
   },
   distanceKm: {
     type: Number,
@@ -70,7 +74,7 @@ const EmergencyRequestSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['PENDING', 'ACTIVE', 'FULFILLED', 'EXPIRED', 'CANCELLED'],
+      enum: ['PENDING', 'ACTIVE', 'DONORS_ASSIGNED', 'FULFILLED', 'EXPIRED', 'CANCELLED'],
       default: 'ACTIVE',
       index: true,
     },

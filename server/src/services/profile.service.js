@@ -198,6 +198,12 @@ export const becomeDonor = async (userId, fields) => {
     throw err;
   }
 
+  if (['HOSPITAL', 'BLOOD_BANK', 'ADMIN'].includes(user.role)) {
+    const err = new Error('Facility and admin accounts cannot register as voluntary donors.');
+    err.statusCode = 403;
+    throw err;
+  }
+
   const { bloodGroup, weightKg, medicalNotes } = fields;
   const finalBloodGroup = bloodGroup || user.bloodGroup;
 

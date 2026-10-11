@@ -64,6 +64,7 @@ export const ProfilePage = () => {
   });
 
   // Donor State
+  const isEligibleDonorRole = user?.role === 'USER' || user?.role === 'DONOR';
   const [isDonor, setIsDonor] = useState(user?.role === 'DONOR' || user?.isDonor || false);
   const [isAvailable, setIsAvailable] = useState(user?.donorProfile?.isAvailable ?? true);
   const [donorWeight, setDonorWeight] = useState(65);
@@ -105,7 +106,7 @@ export const ProfilePage = () => {
   // Fetch live eligibility if donor
   useEffect(() => {
     const fetchEligibility = async () => {
-      if (!isDonor) return;
+      if (!isDonor || !isEligibleDonorRole) return;
       try {
         const res = await donorAPI.getEligibility();
         if (res.data?.success) {
@@ -241,7 +242,6 @@ export const ProfilePage = () => {
       });
       setIsDonor(true);
       setIsAvailable(true);
-      updateUser({ role: 'DONOR', isDonor: true });
       toast.success('🎉 Enrolled as a Voluntary Donor! Thank you for saving lives.');
       await refreshUser();
     } catch (err) {
@@ -298,46 +298,48 @@ export const ProfilePage = () => {
         </div>
 
         {/* Donor Quick Toggle / Enrollment CTA */}
-        {isDonor ? (
-          <div className="p-4 rounded-2xl bg-red-50/60 border border-red-100 flex items-center justify-between gap-4 sm:w-72">
-            <div>
-              <p className="text-xs font-black text-slate-800">Donor Availability</p>
-              <p className="text-[11px] text-slate-500 font-medium">
-                {isAvailable ? 'Ready for emergency calls' : 'Temporarily unavailable'}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={handleToggleAvailability}
-              disabled={togglingAvailability}
-              className={`
-                relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none
-                ${isAvailable ? 'bg-emerald-600' : 'bg-slate-300'}
-              `}
-            >
-              <span
+        {isEligibleDonorRole && (
+          isDonor ? (
+            <div className="p-4 rounded-2xl bg-red-50/60 border border-red-100 flex items-center justify-between gap-4 sm:w-72">
+              <div>
+                <p className="text-xs font-black text-slate-800">Donor Availability</p>
+                <p className="text-[11px] text-slate-500 font-medium">
+                  {isAvailable ? 'Ready for emergency calls' : 'Temporarily unavailable'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleToggleAvailability}
+                disabled={togglingAvailability}
                 className={`
-                  pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out
-                  ${isAvailable ? 'translate-x-5' : 'translate-x-0'}
+                  relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none
+                  ${isAvailable ? 'bg-emerald-600' : 'bg-slate-300'}
                 `}
-              />
-            </button>
-          </div>
-        ) : (
-          <Button
-            variant="primary"
-            size="md"
-            onClick={handleBecomeDonor}
-            isLoading={enrollingDonor}
-            leftIcon={<Heart className="w-4 h-4 fill-white" />}
-          >
-            Become a Voluntary Donor
-          </Button>
+              >
+                <span
+                  className={`
+                    pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out
+                    ${isAvailable ? 'translate-x-5' : 'translate-x-0'}
+                  `}
+                />
+              </button>
+            </div>
+          ) : (
+            <Button
+              variant="primary"
+              size="md"
+              onClick={handleBecomeDonor}
+              isLoading={enrollingDonor}
+              leftIcon={<Heart className="w-4 h-4 fill-white" />}
+            >
+              Become a Voluntary Donor
+            </Button>
+          )
         )}
       </div>
 
       {/* Donor Eligibility Card */}
-      {isDonor && (
+      {isEligibleDonorRole && isDonor && (
         <div className="rounded-3xl bg-gradient-to-r from-red-50 via-rose-50 to-white border border-red-100 p-6 sm:p-8 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-start gap-4">

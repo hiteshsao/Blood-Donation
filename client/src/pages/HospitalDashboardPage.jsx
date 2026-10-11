@@ -153,37 +153,41 @@ export const HospitalDashboardPage = () => {
     }
   };
 
+  const [hospitalProfile, setHospitalProfile] = useState(null);
+
+  const fetchHospitalProfile = async () => {
+    try {
+      const res = await hospitalAPI.getProfile();
+      const hosp = res.data?.hospital || res.data?.data || res.data;
+      if (hosp) {
+        setHospitalProfile(hosp);
+        setProfileData((prev) => ({
+          name: hosp.name || prev.name || '',
+          licenseNumber: hosp.licenseNumber || prev.licenseNumber || '',
+          nabhAccreditationId: hosp.nabhAccreditationId || prev.nabhAccreditationId || '',
+          category: hosp.category || prev.category || '',
+          totalBeds: hosp.totalBeds ? String(hosp.totalBeds) : (hosp.bedCapacity ? String(hosp.bedCapacity) : prev.totalBeds || ''),
+          icuBeds: hosp.icuBeds ? String(hosp.icuBeds) : prev.icuBeds || '',
+          address: formatAddress(hosp.address) || prev.address || '',
+          emergencyPhone: hosp.emergencyPhone || hosp.phone || hosp.contact?.phone || prev.emergencyPhone || '',
+          bloodBankTieUp: hosp.bloodBankTieUp || prev.bloodBankTieUp || '',
+        }));
+        if (hosp.licenseDocUrl) {
+          setUploadedLicenseUrl(hosp.licenseDocUrl);
+        }
+        if (hosp.verificationStatus || hosp.status) {
+          setLicenseStatus(hosp.verificationStatus || hosp.status);
+        }
+        return hosp;
+      }
+    } catch {
+      // Retain context state if API fails
+    }
+    return null;
+  };
+
   useEffect(() => {
     fetchRequests();
-
-    const fetchHospitalProfile = async () => {
-      try {
-        const res = await hospitalAPI.getProfile();
-        const hosp = res.data?.hospital || res.data?.data || res.data;
-        if (hosp) {
-          setProfileData((prev) => ({
-            name: hosp.name || prev.name || '',
-            licenseNumber: hosp.licenseNumber || prev.licenseNumber || '',
-            nabhAccreditationId: hosp.nabhAccreditationId || prev.nabhAccreditationId || '',
-            category: hosp.category || prev.category || '',
-            totalBeds: hosp.totalBeds ? String(hosp.totalBeds) : (hosp.bedCapacity ? String(hosp.bedCapacity) : prev.totalBeds || ''),
-            icuBeds: hosp.icuBeds ? String(hosp.icuBeds) : prev.icuBeds || '',
-            address: formatAddress(hosp.address) || prev.address || '',
-            emergencyPhone: hosp.emergencyPhone || hosp.phone || hosp.contact?.phone || prev.emergencyPhone || '',
-            bloodBankTieUp: hosp.bloodBankTieUp || prev.bloodBankTieUp || '',
-          }));
-          if (hosp.licenseDocUrl) {
-            setUploadedLicenseUrl(hosp.licenseDocUrl);
-          }
-          if (hosp.verificationStatus || hosp.status) {
-            setLicenseStatus(hosp.verificationStatus || hosp.status);
-          }
-        }
-      } catch {
-        // Retain context state if API fails
-      }
-    };
-
     fetchHospitalProfile();
   }, []);
 
@@ -231,6 +235,28 @@ export const HospitalDashboardPage = () => {
     );
   }
 
+  // Handle Hospital Profile Update
+  const handleProfileSubmit = async (e) => {
+    e.preventDefault();
+    setIsSavingProfile(true);
+    try {
+      await hospitalAPI.updateProfile({
+        name: profileData.name,
+        phone: profileData.emergencyPhone,
+        licenseNumber: profileData.licenseNumber,
+        address: profileData.address,
+        bedCapacity: Number(profileData.totalBeds) || undefined,
+        emergencyContact: profileData.emergencyPhone,
+      });
+      toast.success('Hospital credentials updated successfully.');
+      await fetchHospitalProfile();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update profile');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
   // Handle Post Requirement Submit
   const handlePostRequirement = async (e) => {
     e.preventDefault();
@@ -243,6 +269,18 @@ export const HospitalDashboardPage = () => {
       return;
     }
 
+    const city =
+      hospitalProfile?.city ||
+      hospitalProfile?.address?.city ||
+      user?.city ||
+      user?.address?.city ||
+      '';
+
+    if (!city.trim()) {
+      toast.error('Add your city in Profile first');
+      return;
+    }
+
     setIsSubmittingReq(true);
     try {
       const payload = {
@@ -252,7 +290,7 @@ export const HospitalDashboardPage = () => {
         component: requirementForm.component,
         urgency: requirementForm.urgency,
         hospitalName: profileData.name || 'Hospital',
-        city: user?.city || user?.address?.city || '',
+        city: city.trim(),
         requiredBy: requirementForm.requiredBy || undefined,
         notes: `Dr. ${requirementForm.doctorInCharge || 'On-Duty'} | Ward: ${requirementForm.ward || 'General'} | Reason: ${requirementForm.clinicalReason}`,
       };
@@ -260,18 +298,7 @@ export const HospitalDashboardPage = () => {
       await requestAPI.create(payload);
       toast.success('Blood Requirement posted to LifeDrop Central Dispatch!');
 
-      // Append to local state
-      const newEntry = {
-        _id: `req-hosp-${Date.now()}`,
-        ...payload,
-        status: 'PENDING',
-        doctorInCharge: requirementForm.doctorInCharge,
-        ward: requirementForm.ward,
-        clinicalReason: requirementForm.clinicalReason,
-        createdAt: new Date().toISOString(),
-        statusHistory: [{ status: 'PENDING', timestamp: new Date().toISOString() }],
-      };
-      setRequests([newEntry, ...requests]);
+      await fetchRequests();
 
       // Reset form and switch to tracking
       setRequirementForm({
@@ -286,8 +313,8 @@ export const HospitalDashboardPage = () => {
         clinicalReason: '',
       });
       handleTabChange('track-requests');
-    } catch {
-      toast.error('Failed to post requisition to server. Saved to local queue.');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to post requisition to server.');
     } finally {
       setIsSubmittingReq(false);
     }
@@ -312,38 +339,14 @@ export const HospitalDashboardPage = () => {
 
     setIsConfirming(true);
     try {
+      const note = `Batch: ${confirmForm.batchNo} | Received by: ${confirmForm.receivedBy} | Temp: ${confirmForm.temperatureCelsius}C | ${confirmForm.remarks}`;
       await hospitalAPI.confirmReceived(selectedReqToConfirm._id, {
-        batchNo: confirmForm.batchNo,
-        receivedBy: confirmForm.receivedBy,
-        remarks: `${confirmForm.remarks} (Temp: ${confirmForm.temperatureCelsius}°C)`,
+        note,
+        unitsReceived: Number(selectedReqToConfirm.units) || 1,
       });
 
-      toast.success(
-        `Units confirmed received! Request marked as Received ✓.`
-      );
+      toast.success('Units confirmed received! Request marked as Received ✓.');
 
-      // Update state locally
-      setRequests((prev) =>
-        prev.map((r) =>
-          r._id === selectedReqToConfirm._id
-            ? {
-                ...r,
-                status: 'FULFILLED',
-                confirmedReceived: true,
-                confirmedAt: new Date().toISOString(),
-                receivedConfirmedAt: new Date().toISOString(),
-                receivedBy: confirmForm.receivedBy,
-                batchNo: confirmForm.batchNo,
-                statusHistory: [
-                  ...(r.statusHistory || []),
-                  { status: 'FULFILLED', note: 'Hospital confirmed receipt', timestamp: new Date().toISOString() },
-                ],
-              }
-            : r
-        )
-      );
-
-      // Re-fetch to guarantee database persistence
       await fetchRequests();
       setConfirmModalOpen(false);
       setSelectedReqToConfirm(null);
@@ -676,7 +679,7 @@ export const HospitalDashboardPage = () => {
               Post Hospital Blood Requirement
             </h2>
             <p className="text-xs sm:text-sm text-slate-500 font-medium">
-              Submit unit orders directly to licensed blood banks and compatible voluntary donors in {user?.city || user?.address?.city || 'your area'}.
+              Submit unit orders directly to licensed blood banks and compatible voluntary donors in {hospitalProfile?.city || hospitalProfile?.address?.city || user?.city || user?.address?.city || 'your area'}.
             </p>
           </div>
 
@@ -1037,17 +1040,7 @@ export const HospitalDashboardPage = () => {
               </p>
             </div>
 
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                setIsSavingProfile(true);
-                setTimeout(() => {
-                  setIsSavingProfile(false);
-                  toast.success('Hospital credentials updated successfully.');
-                }, 600);
-              }}
-              className="space-y-5"
-            >
+            <form onSubmit={handleProfileSubmit} className="space-y-5">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Input
                   label="Hospital Facility Name"
@@ -1057,12 +1050,16 @@ export const HospitalDashboardPage = () => {
                   onChange={(e) => setProfileData({ ...profileData, name: e.target.value })}
                 />
 
-                <Input
-                  label="Facility Category"
-                  placeholder="Not provided"
-                  value={profileData.category}
-                  onChange={(e) => setProfileData({ ...profileData, category: e.target.value })}
-                />
+                <div>
+                  <Input
+                    label="Facility Category"
+                    disabled
+                    placeholder="Not provided"
+                    value={profileData.category}
+                    onChange={(e) => setProfileData({ ...profileData, category: e.target.value })}
+                  />
+                  <p className="text-[11px] text-slate-400 font-medium mt-1">Not saved yet</p>
+                </div>
 
                 <Input
                   label="State Health Registration / License ID"
@@ -1074,14 +1071,18 @@ export const HospitalDashboardPage = () => {
                   }
                 />
 
-                <Input
-                  label="NABH / NABL Accreditation Certificate ID"
-                  placeholder="Not provided"
-                  value={profileData.nabhAccreditationId}
-                  onChange={(e) =>
-                    setProfileData({ ...profileData, nabhAccreditationId: e.target.value })
-                  }
-                />
+                <div>
+                  <Input
+                    label="NABH / NABL Accreditation Certificate ID"
+                    disabled
+                    placeholder="Not provided"
+                    value={profileData.nabhAccreditationId}
+                    onChange={(e) =>
+                      setProfileData({ ...profileData, nabhAccreditationId: e.target.value })
+                    }
+                  />
+                  <p className="text-[11px] text-slate-400 font-medium mt-1">Not saved yet</p>
+                </div>
 
                 <Input
                   label="Total Inpatient Beds"
@@ -1091,13 +1092,17 @@ export const HospitalDashboardPage = () => {
                   onChange={(e) => setProfileData({ ...profileData, totalBeds: e.target.value })}
                 />
 
-                <Input
-                  label="ICU / Emergency Resuscitation Beds"
-                  type="number"
-                  placeholder="Not provided"
-                  value={profileData.icuBeds}
-                  onChange={(e) => setProfileData({ ...profileData, icuBeds: e.target.value })}
-                />
+                <div>
+                  <Input
+                    label="ICU / Emergency Resuscitation Beds"
+                    type="number"
+                    disabled
+                    placeholder="Not provided"
+                    value={profileData.icuBeds}
+                    onChange={(e) => setProfileData({ ...profileData, icuBeds: e.target.value })}
+                  />
+                  <p className="text-[11px] text-slate-400 font-medium mt-1">Not saved yet</p>
+                </div>
 
                 <Input
                   label="24x7 Trauma Helpline"
@@ -1108,14 +1113,18 @@ export const HospitalDashboardPage = () => {
                   }
                 />
 
-                <Input
-                  label="Affiliated Blood Bank Unit"
-                  placeholder="Not provided"
-                  value={profileData.bloodBankTieUp}
-                  onChange={(e) =>
-                    setProfileData({ ...profileData, bloodBankTieUp: e.target.value })
-                  }
-                />
+                <div>
+                  <Input
+                    label="Affiliated Blood Bank Unit"
+                    disabled
+                    placeholder="Not provided"
+                    value={profileData.bloodBankTieUp}
+                    onChange={(e) =>
+                      setProfileData({ ...profileData, bloodBankTieUp: e.target.value })
+                    }
+                  />
+                  <p className="text-[11px] text-slate-400 font-medium mt-1">Not saved yet</p>
+                </div>
               </div>
 
               <Input

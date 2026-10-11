@@ -5,87 +5,15 @@ import {
   XCircle,
   Lock,
   RefreshCw,
-  ShieldCheck,
-  ShieldAlert,
-  Calendar,
-  Phone,
-  Droplet,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { adminAPI } from '../../services/api';
 import { DataTable, StatusBadge, Button, ConfirmDialog } from '../../components/common';
 
-const FALLBACK_DONORS = [
-  {
-    _id: 'dnr-101',
-    name: 'Vikram Malhotra',
-    email: 'donor.oneg@test.com',
-    phone: '+91 98765 43210',
-    bloodGroup: 'O-',
-    city: 'Mumbai',
-    isAvailable: true,
-    verificationStatus: 'VERIFIED',
-    totalDonations: 8,
-    lastDonationDate: '2026-07-01T00:00:00.000Z',
-    weightKg: 74,
-  },
-  {
-    _id: 'dnr-102',
-    name: 'Aakash Verma',
-    email: 'aakash.v@outlook.com',
-    phone: '+91 98765 43211',
-    bloodGroup: 'O+',
-    city: 'Mumbai',
-    isAvailable: true,
-    verificationStatus: 'VERIFIED',
-    totalDonations: 6,
-    lastDonationDate: '2026-06-15T00:00:00.000Z',
-    weightKg: 68,
-  },
-  {
-    _id: 'dnr-103',
-    name: 'Sunita Joshi',
-    email: 'sunita.j@unverified.org',
-    phone: '+91 98765 43217',
-    bloodGroup: 'AB+',
-    city: 'Pune',
-    isAvailable: false,
-    verificationStatus: 'PENDING',
-    totalDonations: 0,
-    lastDonationDate: null,
-    weightKg: 55,
-  },
-  {
-    _id: 'dnr-104',
-    name: 'Karan Mehra',
-    email: 'karan.m@demo.org',
-    phone: '+91 98765 43215',
-    bloodGroup: 'B+',
-    city: 'Mumbai',
-    isAvailable: true,
-    verificationStatus: 'VERIFIED',
-    totalDonations: 2,
-    lastDonationDate: '2026-08-10T00:00:00.000Z',
-    weightKg: 80,
-  },
-  {
-    _id: 'dnr-105',
-    name: 'Rameshwar T',
-    email: 'ramesh.t@blocked.com',
-    phone: '+91 98765 00001',
-    bloodGroup: 'A-',
-    city: 'Mumbai',
-    isAvailable: false,
-    verificationStatus: 'BLOCKED',
-    totalDonations: 1,
-    lastDonationDate: '2025-11-05T00:00:00.000Z',
-    weightKg: 62,
-  },
-];
-
 export const AdminDonorsPage = () => {
-  const [donors, setDonors] = useState(FALLBACK_DONORS);
+  const [donors, setDonors] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   // Confirm Dialog State
   const [confirmDialog, setConfirmDialog] = useState({
@@ -99,14 +27,26 @@ export const AdminDonorsPage = () => {
 
   const fetchDonors = async () => {
     setLoading(true);
+    setErrorMessage('');
     try {
-      const res = await adminAPI.getDonors();
-      const data = res.data?.data || res.data?.donors || res.data;
-      if (Array.isArray(data) && data.length > 0) {
-        setDonors(data);
-      }
-    } catch {
-      // Retain fallback data
+      const res = await adminAPI.getDonors({ limit: 100 });
+      const rawList = res.data?.data || res.data?.donors || (Array.isArray(res.data) ? res.data : []);
+      const normalized = rawList.map((row) => ({
+        ...row,
+        name: row.user?.name || row.name || 'Unnamed Donor',
+        email: row.user?.email || row.email || '',
+        phone: row.user?.phone || row.user?.mobile || row.phone || '--',
+        city: row.user?.city || row.city || '--',
+        userId: row.user?._id || row.userId,
+        isBlocked: row.user?.status === 'BLOCKED' || row.user?.isBlocked === true,
+        totalDonations: row.totalDonations ?? 0,
+        lastDonationDate: row.lastDonationDate ?? null,
+      }));
+      setDonors(normalized);
+    } catch (err) {
+      console.warn('Failed to load donors:', err);
+      setDonors([]);
+      setErrorMessage('Could not load donors');
     } finally {
       setLoading(false);
     }
@@ -127,15 +67,10 @@ export const AdminDonorsPage = () => {
       action: async () => {
         try {
           await adminAPI.approveDonor(donor._id, 'Clinical fitness credentials verified');
-          setDonors((prev) =>
-            prev.map((d) => (d._id === donor._id ? { ...d, verificationStatus: 'VERIFIED' } : d))
-          );
           toast.success(`Donor ${donor.name} approved and verified.`);
-        } catch {
-          setDonors((prev) =>
-            prev.map((d) => (d._id === donor._id ? { ...d, verificationStatus: 'VERIFIED' } : d))
-          );
-          toast.success(`Donor ${donor.name} verified.`);
+          await fetchDonors();
+        } catch (err) {
+          toast.error(err.response?.data?.message || 'Action failed');
         }
       },
     });
@@ -152,23 +87,18 @@ export const AdminDonorsPage = () => {
       action: async () => {
         try {
           await adminAPI.rejectDonor(donor._id, 'Incomplete medical fitness documentation');
-          setDonors((prev) =>
-            prev.map((d) => (d._id === donor._id ? { ...d, verificationStatus: 'REJECTED' } : d))
-          );
-          toast.error(`Verification rejected for ${donor.name}.`);
-        } catch {
-          setDonors((prev) =>
-            prev.map((d) => (d._id === donor._id ? { ...d, verificationStatus: 'REJECTED' } : d))
-          );
-          toast.error(`Verification rejected for ${donor.name}.`);
+          toast.success(`Verification rejected for ${donor.name}.`);
+          await fetchDonors();
+        } catch (err) {
+          toast.error(err.response?.data?.message || 'Action failed');
         }
       },
     });
   };
 
-  // 3. Block Donor
+  // 3. Block / Unblock Donor
   const handleBlock = (donor) => {
-    const isBlocked = donor.verificationStatus === 'BLOCKED';
+    const isBlocked = donor.isBlocked || donor.verificationStatus === 'BLOCKED';
     setConfirmDialog({
       isOpen: true,
       title: isBlocked ? `Unblock ${donor.name}?` : `Block ${donor.name}?`,
@@ -180,27 +110,21 @@ export const AdminDonorsPage = () => {
       action: async () => {
         try {
           if (isBlocked) {
+            // Unblock flow: unblockUser -> approveDonor -> fetchDonors
+            if (donor.userId) {
+              await adminAPI.unblockUser(donor.userId);
+            }
             await adminAPI.approveDonor(donor._id, 'Administrative reinstatement');
-            setDonors((prev) =>
-              prev.map((d) => (d._id === donor._id ? { ...d, verificationStatus: 'VERIFIED' } : d))
-            );
             toast.success(`Donor ${donor.name} unblocked.`);
+            await fetchDonors();
           } else {
+            // Block flow: blockDonor -> fetchDonors
             await adminAPI.blockDonor(donor._id, 'Administrative block policy');
-            setDonors((prev) =>
-              prev.map((d) => (d._id === donor._id ? { ...d, verificationStatus: 'BLOCKED' } : d))
-            );
-            toast.error(`Donor ${donor.name} blocked.`);
+            toast.success(`Donor ${donor.name} blocked.`);
+            await fetchDonors();
           }
-        } catch {
-          setDonors((prev) =>
-            prev.map((d) =>
-              d._id === donor._id
-                ? { ...d, verificationStatus: isBlocked ? 'VERIFIED' : 'BLOCKED' }
-                : d
-            )
-          );
-          toast.success(`Status updated for ${donor.name}.`);
+        } catch (err) {
+          toast.error(err.response?.data?.message || 'Action failed');
         }
       },
     });
@@ -256,7 +180,10 @@ export const AdminDonorsPage = () => {
       header: 'Audit Status',
       key: 'verificationStatus',
       sortable: true,
-      render: (row) => <StatusBadge status={row.verificationStatus} size="xs" />,
+      render: (row) => {
+        const auditStatus = row.isBlocked ? 'BLOCKED' : row.verificationStatus;
+        return <StatusBadge status={auditStatus} size="xs" />;
+      },
     },
     {
       header: 'Units Donated',
@@ -284,43 +211,46 @@ export const AdminDonorsPage = () => {
       header: 'Actions',
       key: 'actions',
       sortable: false,
-      render: (row) => (
-        <div className="flex items-center gap-2">
-          {row.verificationStatus !== 'VERIFIED' && (
-            <Button
-              variant="outline"
-              size="xs"
-              onClick={() => handleApprove(row)}
-              className="text-emerald-700 border-emerald-300 hover:bg-emerald-50"
-              leftIcon={<CheckCircle2 className="w-3 h-3" />}
-            >
-              Approve
-            </Button>
-          )}
+      render: (row) => {
+        const isBlocked = row.isBlocked || row.verificationStatus === 'BLOCKED';
+        return (
+          <div className="flex items-center gap-2">
+            {!isBlocked && row.verificationStatus !== 'VERIFIED' && (
+              <Button
+                variant="outline"
+                size="xs"
+                onClick={() => handleApprove(row)}
+                className="text-emerald-700 border-emerald-300 hover:bg-emerald-50"
+                leftIcon={<CheckCircle2 className="w-3 h-3" />}
+              >
+                Approve
+              </Button>
+            )}
 
-          {row.verificationStatus === 'PENDING' && (
+            {!isBlocked && row.verificationStatus === 'PENDING' && (
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => handleReject(row)}
+                className="text-red-700 hover:bg-red-50"
+                leftIcon={<XCircle className="w-3 h-3" />}
+              >
+                Reject
+              </Button>
+            )}
+
             <Button
               variant="ghost"
               size="xs"
-              onClick={() => handleReject(row)}
-              className="text-red-700 hover:bg-red-50"
-              leftIcon={<XCircle className="w-3 h-3" />}
+              onClick={() => handleBlock(row)}
+              className={isBlocked ? 'text-emerald-700 hover:bg-emerald-50' : 'text-slate-600 hover:bg-slate-100'}
+              leftIcon={<Lock className="w-3 h-3" />}
             >
-              Reject
+              {isBlocked ? 'Unblock' : 'Block'}
             </Button>
-          )}
-
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={() => handleBlock(row)}
-            className={row.verificationStatus === 'BLOCKED' ? 'text-emerald-700 hover:bg-emerald-50' : 'text-slate-600 hover:bg-slate-100'}
-            leftIcon={<Lock className="w-3 h-3" />}
-          >
-            {row.verificationStatus === 'BLOCKED' ? 'Unblock' : 'Block'}
-          </Button>
-        </div>
-      ),
+          </div>
+        );
+      },
     },
   ];
 
@@ -351,6 +281,12 @@ export const AdminDonorsPage = () => {
         </Button>
       </div>
 
+      {errorMessage && (
+        <div className="p-3 bg-red-950/40 border border-red-800/60 rounded-xl text-red-300 text-xs font-medium">
+          {errorMessage}
+        </div>
+      )}
+
       {/* DataTable */}
       <DataTable
         columns={columns}
@@ -360,8 +296,8 @@ export const AdminDonorsPage = () => {
         searchPlaceholder="Search donors by name, blood group, city..."
         searchKeys={['name', 'email', 'phone', 'bloodGroup', 'city']}
         pageSize={10}
-        emptyTitle="No Donors Found"
-        emptyDescription="No donor records match your search parameters."
+        emptyTitle={errorMessage ? 'Error' : 'No Donors Found'}
+        emptyDescription={errorMessage || 'No donor records match your search parameters.'}
       />
 
       {/* Confirm Dialog */}

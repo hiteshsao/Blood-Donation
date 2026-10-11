@@ -1175,6 +1175,7 @@ export const getAdminDashboardStats = async () => {
   const [
     totalUsers,
     totalDonors,
+    verifiedDonors,
     totalHospitals,
     totalBloodBanks,
     totalRequests,
@@ -1190,6 +1191,7 @@ export const getAdminDashboardStats = async () => {
   ] = await Promise.all([
     User.countDocuments({ status: { $ne: 'INACTIVE' } }),
     DonorProfile.countDocuments(),
+    DonorProfile.countDocuments({ verificationStatus: 'VERIFIED' }),
     Hospital.countDocuments(),
     BloodBank.countDocuments(),
     BloodRequest.countDocuments(),
@@ -1220,6 +1222,7 @@ export const getAdminDashboardStats = async () => {
     totals: {
       users: totalUsers,
       donors: totalDonors,
+      verifiedDonors,
       hospitals: totalHospitals,
       bloodBanks: totalBloodBanks,
       requests: totalRequests,

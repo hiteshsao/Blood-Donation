@@ -35,6 +35,7 @@ export const AdminDashboard = () => {
   const [stats, setStats] = useState({
     totalUsers: '...',
     totalDonors: '...',
+    verifiedDonors: '...',
     pendingFacilities: '...',
     activeEmergencies: '...',
     totalAvailableStock: '...',
@@ -62,6 +63,7 @@ export const AdminDashboard = () => {
 
           const usersCount = totals.users ?? data.totalUsers;
           const donorsCount = totals.donors ?? data.totalDonors;
+          const verifiedDonorsCount = totals.verifiedDonors;
           const emergenciesCount = data.activeEmergencies ?? totals.emergencies;
 
           const hasPendingApprovals =
@@ -83,6 +85,8 @@ export const AdminDashboard = () => {
           setStats({
             totalUsers: usersCount !== undefined && usersCount !== null ? String(usersCount) : '--',
             totalDonors: donorsCount !== undefined && donorsCount !== null ? String(donorsCount) : '--',
+            verifiedDonors:
+              verifiedDonorsCount !== undefined && verifiedDonorsCount !== null ? String(verifiedDonorsCount) : '--',
             pendingFacilities:
               pendingCount !== undefined && pendingCount !== null ? `${pendingCount} Facilities` : '--',
             activeEmergencies:
@@ -102,6 +106,7 @@ export const AdminDashboard = () => {
           setStats({
             totalUsers: '--',
             totalDonors: '--',
+            verifiedDonors: '--',
             pendingFacilities: '--',
             activeEmergencies: '--',
             totalAvailableStock: '--',
@@ -117,6 +122,7 @@ export const AdminDashboard = () => {
         setStats({
           totalUsers: '--',
           totalDonors: '--',
+          verifiedDonors: '--',
           pendingFacilities: '--',
           activeEmergencies: '--',
           totalAvailableStock: '--',
@@ -211,8 +217,8 @@ export const AdminDashboard = () => {
         />
         <StatCard
           title="Verified Donors"
-          value={stats.totalDonors}
-          subtitle="Active on call registry"
+          value={stats.verifiedDonors}
+          subtitle="Verified & clinically cleared"
           icon={<HeartHandshake className="w-5 h-5 text-emerald-500" />}
           color="emerald"
         />

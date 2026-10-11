@@ -57,87 +57,14 @@ const BLOOD_COMPONENTS = [
   { value: 'CRYOPRECIPITATE', label: 'Cryoprecipitate' },
 ];
 
-const FALLBACK_HOSPITAL_REQUESTS = [
-  {
-    _id: 'req-hosp-801',
-    patientName: 'Vikrant Deshmukh (UHID-88219)',
-    bloodGroup: 'O-',
-    units: 3,
-    component: 'PRBC',
-    urgency: 'CRITICAL',
-    status: 'DONOR_ASSIGNED',
-    hospitalName: 'Apollo City Hospital',
-    city: 'Mumbai',
-    doctorInCharge: 'Dr. S. K. Nambiar',
-    ward: 'ICU Bed 04',
-    clinicalReason: 'Emergency aortic aneurysm surgical repair',
-    assignedDonor: {
-      name: 'Aakash Verma',
-      phone: '+91 98765 43210',
-      bloodGroup: 'O-',
-    },
-    dispatchedBank: {
-      name: 'RedCross Regional Blood Center',
-      contact: '+91 98555 55555',
-      batchNo: 'BAT-2026-8812',
-    },
-    createdAt: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-    statusHistory: [
-      { status: 'PENDING', timestamp: new Date(Date.now() - 1000 * 60 * 45).toISOString() },
-      { status: 'APPROVED', timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString() },
-      { status: 'DONOR_ASSIGNED', timestamp: new Date(Date.now() - 1000 * 60 * 15).toISOString() },
-    ],
-  },
-  {
-    _id: 'req-hosp-802',
-    patientName: 'Meera Kulkarni (UHID-71042)',
-    bloodGroup: 'B+',
-    units: 2,
-    component: 'PLATELETS',
-    urgency: 'URGENT',
-    status: 'IN_PROGRESS',
-    hospitalName: 'Apollo City Hospital',
-    city: 'Mumbai',
-    doctorInCharge: 'Dr. Ananya Sen',
-    ward: 'Oncology Daycare OT-2',
-    clinicalReason: 'Thrombocytopenia secondary to chemotherapy',
-    dispatchedBank: {
-      name: 'Civil Hospital Transfusion Unit',
-      contact: '+91 98222 22222',
-      batchNo: 'PLT-MUM-449',
-    },
-    createdAt: new Date(Date.now() - 1000 * 60 * 180).toISOString(),
-    statusHistory: [
-      { status: 'PENDING', timestamp: new Date(Date.now() - 1000 * 60 * 180).toISOString() },
-      { status: 'APPROVED', timestamp: new Date(Date.now() - 1000 * 60 * 120).toISOString() },
-      { status: 'IN_PROGRESS', timestamp: new Date(Date.now() - 1000 * 60 * 60).toISOString() },
-    ],
-  },
-  {
-    _id: 'req-hosp-803',
-    patientName: 'Rohan Banerjee (UHID-49910)',
-    bloodGroup: 'A+',
-    units: 1,
-    component: 'WHOLE_BLOOD',
-    urgency: 'ROUTINE',
-    status: 'FULFILLED',
-    hospitalName: 'Apollo City Hospital',
-    city: 'Mumbai',
-    doctorInCharge: 'Dr. Priya Ghosh',
-    ward: 'Post-Op Ward 3',
-    clinicalReason: 'Orthopedic total knee replacement elective transfusion',
-    receivedConfirmedAt: new Date(Date.now() - 1000 * 60 * 60 * 12).toISOString(),
-    receivedBy: 'Nurse Supervisor Reena Roy',
-    batchNo: 'WB-2026-0041',
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
-    statusHistory: [
-      { status: 'PENDING', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString() },
-      { status: 'APPROVED', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 20).toISOString() },
-      { status: 'IN_PROGRESS', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 16).toISOString() },
-      { status: 'FULFILLED', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 12).toISOString() },
-    ],
-  },
-];
+const formatAddress = (addr) => {
+  if (!addr) return '';
+  if (typeof addr === 'string') return addr;
+  if (typeof addr === 'object') {
+    return [addr.line, addr.city, addr.state, addr.pincode].filter(Boolean).join(', ');
+  }
+  return '';
+};
 
 export const HospitalDashboardPage = () => {
   const { user } = useAuth();
@@ -151,8 +78,9 @@ export const HospitalDashboardPage = () => {
   const isPending = user?.status === 'PENDING' || user?.verificationStatus === 'PENDING';
 
   // Requests State
-  const [requests, setRequests] = useState(FALLBACK_HOSPITAL_REQUESTS);
+  const [requests, setRequests] = useState([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
+  const [requestsError, setRequestsError] = useState(null);
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -181,41 +109,45 @@ export const HospitalDashboardPage = () => {
   });
   const [isConfirming, setIsConfirming] = useState(false);
 
-  // Hospital Profile & License State
-  const [profileData, setProfileData] = useState({
-    name: user?.hospitalName || user?.name || 'Apollo City Hospital',
-    licenseNumber: user?.licenseNumber || 'MH-MUM-HOSP-2024-991',
-    nabhAccreditationId: 'NABH-TC-2025-014',
-    category: 'Tertiary Care & Trauma Center',
-    totalBeds: '450',
-    icuBeds: '60',
-    address: '123 Marine Drive, South Mumbai, Maharashtra - 400020',
-    emergencyPhone: user?.phone || '+91 22 2675 1000',
-    bloodBankTieUp: 'Apollo Regional Blood Bank & RedCross',
-  });
+  // Hospital Profile & License State (dynamic from user / hospital context without hardcoded defaults)
+  const [profileData, setProfileData] = useState(() => ({
+    name: user?.hospitalName || user?.name || user?.hospital?.name || '',
+    licenseNumber: user?.licenseNumber || user?.hospital?.licenseNumber || '',
+    nabhAccreditationId: user?.nabhAccreditationId || user?.hospital?.nabhAccreditationId || '',
+    category: user?.category || user?.hospital?.category || '',
+    totalBeds: user?.totalBeds ? String(user.totalBeds) : (user?.bedCapacity ? String(user.bedCapacity) : (user?.hospital?.totalBeds ? String(user.hospital.totalBeds) : '')),
+    icuBeds: user?.icuBeds ? String(user.icuBeds) : (user?.hospital?.icuBeds ? String(user.hospital.icuBeds) : ''),
+    address: formatAddress(user?.address) || formatAddress(user?.hospital?.address) || user?.city || '',
+    emergencyPhone: user?.emergencyPhone || user?.phone || user?.hospital?.phone || '',
+    bloodBankTieUp: user?.bloodBankTieUp || user?.hospital?.bloodBankTieUp || '',
+  }));
   const [isSavingProfile, setIsSavingProfile] = useState(false);
 
-  // License Document Upload State
+  // License Document Upload State (no sample default)
   const [selectedFile, setSelectedFile] = useState(null);
   const [isUploadingLicense, setIsUploadingLicense] = useState(false);
   const [uploadedLicenseUrl, setUploadedLicenseUrl] = useState(
-    user?.licenseDocUrl || '/documents/sample-hospital-license.pdf'
+    user?.licenseDocUrl || user?.hospital?.licenseDocUrl || ''
   );
   const [licenseStatus, setLicenseStatus] = useState(
-    isPending ? 'PENDING_REVIEW' : 'VERIFIED'
+    user?.verificationStatus || user?.hospital?.verificationStatus || (user?.isVerified ? 'VERIFIED' : (user?.status || 'PENDING'))
   );
 
   // Fetch Requests
   const fetchRequests = async () => {
     setLoadingRequests(true);
+    setRequestsError(null);
     try {
       const res = await hospitalAPI.getRequests();
       const data = res.data?.data || res.data?.requests || res.data;
       if (Array.isArray(data)) {
         setRequests(data);
+      } else {
+        setRequests([]);
       }
     } catch {
-      // Retain fallback demo data
+      setRequests([]);
+      setRequestsError('Could not load requests');
     } finally {
       setLoadingRequests(false);
     }
@@ -223,7 +155,63 @@ export const HospitalDashboardPage = () => {
 
   useEffect(() => {
     fetchRequests();
+
+    const fetchHospitalProfile = async () => {
+      try {
+        const res = await hospitalAPI.getProfile();
+        const hosp = res.data?.hospital || res.data?.data || res.data;
+        if (hosp) {
+          setProfileData((prev) => ({
+            name: hosp.name || prev.name || '',
+            licenseNumber: hosp.licenseNumber || prev.licenseNumber || '',
+            nabhAccreditationId: hosp.nabhAccreditationId || prev.nabhAccreditationId || '',
+            category: hosp.category || prev.category || '',
+            totalBeds: hosp.totalBeds ? String(hosp.totalBeds) : (hosp.bedCapacity ? String(hosp.bedCapacity) : prev.totalBeds || ''),
+            icuBeds: hosp.icuBeds ? String(hosp.icuBeds) : prev.icuBeds || '',
+            address: formatAddress(hosp.address) || prev.address || '',
+            emergencyPhone: hosp.emergencyPhone || hosp.phone || hosp.contact?.phone || prev.emergencyPhone || '',
+            bloodBankTieUp: hosp.bloodBankTieUp || prev.bloodBankTieUp || '',
+          }));
+          if (hosp.licenseDocUrl) {
+            setUploadedLicenseUrl(hosp.licenseDocUrl);
+          }
+          if (hosp.verificationStatus || hosp.status) {
+            setLicenseStatus(hosp.verificationStatus || hosp.status);
+          }
+        }
+      } catch {
+        // Retain context state if API fails
+      }
+    };
+
+    fetchHospitalProfile();
   }, []);
+
+  useEffect(() => {
+    if (user) {
+      setProfileData((prev) => ({
+        name: prev.name || user.hospitalName || user.name || '',
+        licenseNumber: prev.licenseNumber || user.licenseNumber || '',
+        nabhAccreditationId: prev.nabhAccreditationId || user.nabhAccreditationId || '',
+        category: prev.category || user.category || '',
+        totalBeds: prev.totalBeds || (user.totalBeds ? String(user.totalBeds) : (user.bedCapacity ? String(user.bedCapacity) : '')),
+        icuBeds: prev.icuBeds || (user.icuBeds ? String(user.icuBeds) : ''),
+        address: prev.address || formatAddress(user.address) || user.city || '',
+        emergencyPhone: prev.emergencyPhone || user.emergencyPhone || user.phone || '',
+        bloodBankTieUp: prev.bloodBankTieUp || user.bloodBankTieUp || '',
+      }));
+      if (user.licenseDocUrl && !uploadedLicenseUrl) {
+        setUploadedLicenseUrl(user.licenseDocUrl);
+      }
+      if (user.verificationStatus) {
+        setLicenseStatus(user.verificationStatus);
+      } else if (user.isVerified) {
+        setLicenseStatus('VERIFIED');
+      } else if (user.status) {
+        setLicenseStatus(user.status);
+      }
+    }
+  }, [user]);
 
   // Sync tab change with URL
   const handleTabChange = (tab) => {
@@ -263,8 +251,8 @@ export const HospitalDashboardPage = () => {
         units: Number(requirementForm.units),
         component: requirementForm.component,
         urgency: requirementForm.urgency,
-        hospitalName: profileData.name,
-        city: user?.city || 'Mumbai',
+        hospitalName: profileData.name || 'Hospital',
+        city: user?.city || user?.address?.city || '',
         requiredBy: requirementForm.requiredBy || undefined,
         notes: `Dr. ${requirementForm.doctorInCharge || 'On-Duty'} | Ward: ${requirementForm.ward || 'General'} | Reason: ${requirementForm.clinicalReason}`,
       };
@@ -393,15 +381,14 @@ export const HospitalDashboardPage = () => {
       formData.append('license', selectedFile);
       formData.append('licenseNumber', profileData.licenseNumber);
 
-      await hospitalAPI.uploadLicense(formData);
+      const res = await hospitalAPI.uploadLicense(formData);
       toast.success('Hospital license document uploaded! Submitted for audit.');
-      setUploadedLicenseUrl(URL.createObjectURL(selectedFile));
-      setLicenseStatus('PENDING_REVIEW');
+      const docUrl = res?.data?.licenseDocUrl || URL.createObjectURL(selectedFile);
+      setUploadedLicenseUrl(docUrl);
+      setLicenseStatus(res?.data?.hospital?.verificationStatus || 'PENDING_REVIEW');
       setSelectedFile(null);
-    } catch {
-      toast.success('License uploaded successfully! Clinical compliance notified.');
-      setLicenseStatus('VERIFIED');
-      setSelectedFile(null);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to upload license document. Please try again.');
     } finally {
       setIsUploadingLicense(false);
     }
@@ -431,15 +418,23 @@ export const HospitalDashboardPage = () => {
           <div className="flex items-center gap-2">
             <span className="px-3 py-1 rounded-full bg-white/20 text-xs font-black uppercase tracking-wider backdrop-blur-sm flex items-center gap-1.5">
               <Building2 className="w-3.5 h-3.5" />
-              NABH Certified Hospital Hub
+              {profileData.nabhAccreditationId ? `NABH: ${profileData.nabhAccreditationId}` : 'Hospital Facility'}
             </span>
-            <span className="px-2.5 py-0.5 rounded-full bg-emerald-500 text-white text-[10px] font-black uppercase">
-              {licenseStatus}
+            <span
+              className={`px-2.5 py-0.5 rounded-full text-white text-[10px] font-black uppercase ${
+                licenseStatus === 'VERIFIED'
+                  ? 'bg-emerald-500'
+                  : licenseStatus === 'REJECTED'
+                  ? 'bg-red-500'
+                  : 'bg-amber-500'
+              }`}
+            >
+              {licenseStatus || 'PENDING'}
             </span>
           </div>
 
           <h1 className="text-2xl sm:text-3xl font-black tracking-tight leading-tight">
-            {profileData.name}
+            {profileData.name || 'Not provided'}
           </h1>
 
           <p className="text-xs sm:text-sm text-red-100 font-medium leading-relaxed">
@@ -530,10 +525,10 @@ export const HospitalDashboardPage = () => {
             />
             <StatCard
               title="License Status"
-              value="NABH Cleared"
-              subtitle={profileData.licenseNumber}
+              value={licenseStatus === 'VERIFIED' ? 'Verified' : (licenseStatus || 'Pending')}
+              subtitle={profileData.licenseNumber || 'Not provided'}
               icon={<ShieldCheck className="w-5 h-5 text-blue-600" />}
-              color="blue"
+              color={licenseStatus === 'VERIFIED' ? 'emerald' : 'blue'}
             />
           </div>
 
@@ -560,44 +555,54 @@ export const HospitalDashboardPage = () => {
 
               {/* Mini Table */}
               <div className="divide-y divide-slate-100">
-                {requests.slice(0, 3).map((req) => (
-                  <div key={req._id} className="py-3.5 flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-red-100 text-[#C62828] font-black text-xs flex items-center justify-center shrink-0">
-                        {req.bloodGroup}
-                      </div>
-                      <div>
-                        <h5 className="text-xs font-bold text-slate-900">{req.patientName}</h5>
-                        <p className="text-[11px] text-slate-500 font-medium">
-                          {req.units} Units {req.component || 'PRBC'} • {req.ward || 'Main OT'}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-3">
-                      <StatusBadge status={req.status} size="xs" />
-                      {(() => {
-                        const currentHospitalId = user?.hospitalId || user?.facility?._id || user?.hospital?._id || user?.hospital;
-                        const reqHospitalId = req.hospital?._id || req.hospital;
-                        const isMyHospitalRequest = Boolean(
-                          currentHospitalId && reqHospitalId && currentHospitalId.toString() === reqHospitalId.toString()
-                        );
-                        if (isMyHospitalRequest && req.status !== 'FULFILLED' && req.status !== 'CANCELLED') {
-                          return (
-                            <Button
-                              variant="secondary"
-                              size="xs"
-                              onClick={() => handleOpenConfirmModal(req)}
-                            >
-                              Confirm Receipt
-                            </Button>
-                          );
-                        }
-                        return null;
-                      })()}
-                    </div>
+                {requestsError ? (
+                  <div className="py-6 text-center text-xs text-red-500 font-medium">
+                    Could not load requests
                   </div>
-                ))}
+                ) : requests.length === 0 ? (
+                  <div className="py-6 text-center text-xs text-slate-400 font-medium">
+                    No active requisitions found.
+                  </div>
+                ) : (
+                  requests.slice(0, 3).map((req) => (
+                    <div key={req._id} className="py-3.5 flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-red-100 text-[#C62828] font-black text-xs flex items-center justify-center shrink-0">
+                          {req.bloodGroup}
+                        </div>
+                        <div>
+                          <h5 className="text-xs font-bold text-slate-900">{req.patientName}</h5>
+                          <p className="text-[11px] text-slate-500 font-medium">
+                            {req.units} Units {req.component || 'PRBC'} • {req.ward || 'Main OT'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <StatusBadge status={req.status} size="xs" />
+                        {(() => {
+                          const currentHospitalId = user?.hospitalId || user?.facility?._id || user?.hospital?._id || user?.hospital;
+                          const reqHospitalId = req.hospital?._id || req.hospital;
+                          const isMyHospitalRequest = Boolean(
+                            currentHospitalId && reqHospitalId && currentHospitalId.toString() === reqHospitalId.toString()
+                          );
+                          if (isMyHospitalRequest && req.status !== 'FULFILLED' && req.status !== 'CANCELLED') {
+                            return (
+                              <Button
+                                variant="secondary"
+                                size="xs"
+                                onClick={() => handleOpenConfirmModal(req)}
+                              >
+                                Confirm Receipt
+                              </Button>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 
@@ -671,7 +676,7 @@ export const HospitalDashboardPage = () => {
               Post Hospital Blood Requirement
             </h2>
             <p className="text-xs sm:text-sm text-slate-500 font-medium">
-              Submit unit orders directly to licensed blood banks and compatible voluntary donors in {user?.city || 'Mumbai'}.
+              Submit unit orders directly to licensed blood banks and compatible voluntary donors in {user?.city || user?.address?.city || 'your area'}.
             </p>
           </div>
 
@@ -843,6 +848,14 @@ export const HospitalDashboardPage = () => {
           {loadingRequests ? (
             <div className="py-20 flex justify-center">
               <Loader />
+            </div>
+          ) : requestsError ? (
+            <div className="bg-white rounded-3xl p-8 border border-red-100 text-center space-y-3">
+              <AlertTriangle className="w-8 h-8 text-red-500 mx-auto" />
+              <p className="text-sm font-bold text-slate-800">Could not load requests</p>
+              <Button variant="secondary" size="xs" onClick={fetchRequests}>
+                Retry
+              </Button>
             </div>
           ) : filteredRequests.length === 0 ? (
             <EmptyState
@@ -1039,12 +1052,14 @@ export const HospitalDashboardPage = () => {
                 <Input
                   label="Hospital Facility Name"
                   required
+                  placeholder="Not provided"
                   value={profileData.name}
                   onChange={(e) => setProfileData({ ...profileData, name: e.target.value })}
                 />
 
                 <Input
                   label="Facility Category"
+                  placeholder="Not provided"
                   value={profileData.category}
                   onChange={(e) => setProfileData({ ...profileData, category: e.target.value })}
                 />
@@ -1052,6 +1067,7 @@ export const HospitalDashboardPage = () => {
                 <Input
                   label="State Health Registration / License ID"
                   required
+                  placeholder="Not provided"
                   value={profileData.licenseNumber}
                   onChange={(e) =>
                     setProfileData({ ...profileData, licenseNumber: e.target.value })
@@ -1060,6 +1076,7 @@ export const HospitalDashboardPage = () => {
 
                 <Input
                   label="NABH / NABL Accreditation Certificate ID"
+                  placeholder="Not provided"
                   value={profileData.nabhAccreditationId}
                   onChange={(e) =>
                     setProfileData({ ...profileData, nabhAccreditationId: e.target.value })
@@ -1069,6 +1086,7 @@ export const HospitalDashboardPage = () => {
                 <Input
                   label="Total Inpatient Beds"
                   type="number"
+                  placeholder="Not provided"
                   value={profileData.totalBeds}
                   onChange={(e) => setProfileData({ ...profileData, totalBeds: e.target.value })}
                 />
@@ -1076,12 +1094,14 @@ export const HospitalDashboardPage = () => {
                 <Input
                   label="ICU / Emergency Resuscitation Beds"
                   type="number"
+                  placeholder="Not provided"
                   value={profileData.icuBeds}
                   onChange={(e) => setProfileData({ ...profileData, icuBeds: e.target.value })}
                 />
 
                 <Input
                   label="24x7 Trauma Helpline"
+                  placeholder="Not provided"
                   value={profileData.emergencyPhone}
                   onChange={(e) =>
                     setProfileData({ ...profileData, emergencyPhone: e.target.value })
@@ -1090,6 +1110,7 @@ export const HospitalDashboardPage = () => {
 
                 <Input
                   label="Affiliated Blood Bank Unit"
+                  placeholder="Not provided"
                   value={profileData.bloodBankTieUp}
                   onChange={(e) =>
                     setProfileData({ ...profileData, bloodBankTieUp: e.target.value })
@@ -1099,6 +1120,7 @@ export const HospitalDashboardPage = () => {
 
               <Input
                 label="Full Facility Address & Jurisdiction"
+                placeholder="Not provided"
                 value={profileData.address}
                 onChange={(e) => setProfileData({ ...profileData, address: e.target.value })}
               />
@@ -1124,29 +1146,35 @@ export const HospitalDashboardPage = () => {
             </div>
 
             {/* Current Uploaded Document Preview */}
-            <div className="p-4 rounded-2xl bg-[#FFF8F8] border border-red-100 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-red-100 text-[#C62828] flex items-center justify-center shrink-0">
-                  <FileText className="w-5 h-5" />
+            {uploadedLicenseUrl ? (
+              <div className="p-4 rounded-2xl bg-[#FFF8F8] border border-red-100 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-red-100 text-[#C62828] flex items-center justify-center shrink-0">
+                    <FileText className="w-5 h-5" />
+                  </div>
+                  <div className="overflow-hidden">
+                    <p className="text-xs font-bold text-slate-900 truncate">
+                      {uploadedLicenseUrl.split('/').pop() || 'license-document'}
+                    </p>
+                    <p className="text-[10px] text-slate-500">Official Clinical License</p>
+                  </div>
                 </div>
-                <div className="overflow-hidden">
-                  <p className="text-xs font-bold text-slate-900 truncate">
-                    {uploadedLicenseUrl.split('/').pop()}
-                  </p>
-                  <p className="text-[10px] text-slate-500">Official Clinical License</p>
-                </div>
-              </div>
 
-              <a
-                href={uploadedLicenseUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="p-2 text-slate-400 hover:text-[#C62828] transition-colors"
-                title="Preview Document"
-              >
-                <Eye className="w-4 h-4" />
-              </a>
-            </div>
+                <a
+                  href={uploadedLicenseUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="p-2 text-slate-400 hover:text-[#C62828] transition-colors"
+                  title="Preview Document"
+                >
+                  <Eye className="w-4 h-4" />
+                </a>
+              </div>
+            ) : (
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-center text-xs text-slate-500 font-medium">
+                No license uploaded
+              </div>
+            )}
 
             {/* Upload Zone */}
             <form onSubmit={handleUploadLicenseSubmit} className="space-y-4">

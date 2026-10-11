@@ -19,34 +19,84 @@ import api from '../api/axios';
 
 export const AdminOverview = () => {
   const [stats, setStats] = useState({
-    totalUsers: '14,280',
-    totalDonors: '8,410',
-    pendingFacilities: '12 Pending',
-    activeEmergencies: '3 Active',
-    totalAvailableStock: '1,840 Units',
+    totalUsers: '...',
+    totalDonors: '...',
+    pendingFacilities: '...',
+    activeEmergencies: '...',
+    totalAvailableStock: '...',
   });
 
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
+
     const fetchAdminStats = async () => {
       try {
         const res = await api.get('/admin/stats');
-        const data = res.data?.data || res.data;
+        const data = res.data?.data ?? res.data;
+        if (!isMounted) return;
+
         if (data) {
+          const totals = data.totals ?? {};
+          const pendingApprovals = data.pendingApprovals ?? {};
+          const stockByGroup = data.stockByGroup ?? {};
+
+          const usersCount = totals.users ?? data.totalUsers;
+          const donorsCount = totals.donors ?? data.totalDonors;
+          const emergenciesCount = data.activeEmergencies ?? totals.emergencies;
+
+          const hasPendingApprovals =
+            pendingApprovals.hospitals !== undefined || pendingApprovals.bloodBanks !== undefined;
+          const pendingCount = hasPendingApprovals
+            ? (pendingApprovals.hospitals ?? 0) + (pendingApprovals.bloodBanks ?? 0)
+            : (data.pendingFacilities ?? null);
+
+          const stockValues = Object.values(stockByGroup);
+          const stockSum =
+            stockValues.length > 0
+              ? stockValues.reduce((acc, curr) => acc + (Number(curr) || 0), 0)
+              : (data.totalAvailableStock ?? null);
+
           setStats({
-            totalUsers: String(data.totalUsers || '14,280'),
-            totalDonors: String(data.totalDonors || '8,410'),
-            pendingFacilities: `${data.pendingFacilities || '12'} Pending`,
-            activeEmergencies: `${data.activeEmergencies || '3'} Active`,
-            totalAvailableStock: `${data.totalAvailableStock || '1,840'} Units`,
+            totalUsers: usersCount !== undefined && usersCount !== null ? String(usersCount) : '--',
+            totalDonors: donorsCount !== undefined && donorsCount !== null ? String(donorsCount) : '--',
+            pendingFacilities:
+              pendingCount !== undefined && pendingCount !== null ? `${pendingCount} Pending` : '--',
+            activeEmergencies:
+              emergenciesCount !== undefined && emergenciesCount !== null ? `${emergenciesCount} Active` : '--',
+            totalAvailableStock:
+              stockSum !== undefined && stockSum !== null ? `${stockSum} Units` : '--',
+          });
+        } else {
+          setStats({
+            totalUsers: '--',
+            totalDonors: '--',
+            pendingFacilities: '--',
+            activeEmergencies: '--',
+            totalAvailableStock: '--',
           });
         }
-      } catch {
-        // Keep fallback stats for demo evaluation
+      } catch (err) {
+        if (!isMounted) return;
+        console.warn('Failed to load admin stats:', err);
+        setStats({
+          totalUsers: '--',
+          totalDonors: '--',
+          pendingFacilities: '--',
+          activeEmergencies: '--',
+          totalAvailableStock: '--',
+        });
+      } finally {
+        if (isMounted) setLoading(false);
       }
     };
+
     fetchAdminStats();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   return (

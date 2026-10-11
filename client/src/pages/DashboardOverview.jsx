@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Heart,
@@ -25,6 +25,7 @@ import { requestAPI, emergencyAPI, profileAPI } from '../services/api';
 export const DashboardOverview = () => {
   const { user, role, donorProfile, setDonorProfile } = useAuth();
   const userRole = (role || user?.role || 'USER').toUpperCase();
+  const userId = user?._id || user?.id;
 
   // State for real API data
   const [requestsLoading, setRequestsLoading] = useState(true);
@@ -40,11 +41,12 @@ export const DashboardOverview = () => {
   const [donorProfileLoading, setDonorProfileLoading] = useState(false);
   const [donorProfileData, setDonorProfileData] = useState(donorProfile || user?.donorProfile || null);
 
+  const hasFetchedProfile = useRef(false);
+
   useEffect(() => {
-    if (donorProfile) {
-      setDonorProfileData(donorProfile);
-    } else if (user?.donorProfile) {
-      setDonorProfileData(user.donorProfile);
+    const next = donorProfile || user?.donorProfile || null;
+    if (next) {
+      setDonorProfileData((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
     }
   }, [donorProfile, user?.donorProfile]);
 
@@ -105,22 +107,27 @@ export const DashboardOverview = () => {
         if (isMounted) setEmergenciesLoading(false);
       }
 
-      // 3. Fetch up-to-date donor profile if donorProfile exists or user has donor role
-      if (donorProfile || user?.donorProfile || userRole === 'DONOR') {
+      // 3. Fetch up-to-date donor profile only if local donorProfile does not exist yet and hasn't been fetched
+      const localProfile = donorProfile || user?.donorProfile;
+      if (!localProfile && !hasFetchedProfile.current) {
+        hasFetchedProfile.current = true;
         setDonorProfileLoading(true);
         try {
           const res = await profileAPI.getMe();
           if (!isMounted) return;
           const profile = res.data?.donorProfile || res.data?.user?.donorProfile || res.data?.profile;
           if (profile) {
-            setDonorProfileData(profile);
-            if (setDonorProfile) {
+            setDonorProfileData((prev) => (JSON.stringify(prev) === JSON.stringify(profile) ? prev : profile));
+            if (setDonorProfile && JSON.stringify(donorProfile) !== JSON.stringify(profile)) {
               setDonorProfile(profile);
             }
           }
         } catch (err) {
           if (!isMounted) return;
           console.warn('Failed to load donor profile data:', err);
+          if (err.response?.status === 429) {
+            setRequestsError(true);
+          }
         } finally {
           if (isMounted) setDonorProfileLoading(false);
         }
@@ -132,7 +139,7 @@ export const DashboardOverview = () => {
     return () => {
       isMounted = false;
     };
-  }, [userRole, user?.status, user?.verificationStatus, donorProfile, user?.donorProfile, setDonorProfile]);
+  }, [userId, userRole, user?.status, user?.verificationStatus]);
 
   // 1. Dedicated Verification Screen if Account Status is PENDING
   if (user?.status === 'PENDING' || user?.verificationStatus === 'PENDING') {

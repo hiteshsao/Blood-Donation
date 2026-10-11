@@ -125,6 +125,22 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(() => getStoredAccessToken());
   const [loading, setLoading] = useState(true);
 
+  // Stable donorProfile setter with JSON equality check
+  const setDonorProfileStable = useCallback((newProfile) => {
+    setDonorProfile((prev) => {
+      const resolved = typeof newProfile === 'function' ? newProfile(prev) : newProfile;
+      if (JSON.stringify(prev) === JSON.stringify(resolved)) return prev;
+      if (resolved) {
+        localStorage.setItem('donorProfile', JSON.stringify(resolved));
+        localStorage.setItem('lifedrop_donor_profile', JSON.stringify(resolved));
+      } else {
+        localStorage.removeItem('donorProfile');
+        localStorage.removeItem('lifedrop_donor_profile');
+      }
+      return resolved;
+    });
+  }, []);
+
   // Sync user state to localStorage
   const saveUserSession = useCallback((userData, tokenData, donorProfileData) => {
     setUser(userData);
@@ -406,7 +422,7 @@ export const AuthProvider = ({ children }) => {
       loading,
       isAuthenticated,
       donorProfile,
-      setDonorProfile,
+      setDonorProfile: setDonorProfileStable,
       login,
       loginAsDemo,
       register,
@@ -417,7 +433,7 @@ export const AuthProvider = ({ children }) => {
       updateUser,
       refreshUser: fetchCurrentUser,
     }),
-    [user, role, token, loading, isAuthenticated, donorProfile, fetchCurrentUser]
+    [user, role, token, loading, isAuthenticated, donorProfile, setDonorProfileStable, fetchCurrentUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

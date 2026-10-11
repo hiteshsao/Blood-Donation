@@ -110,11 +110,23 @@ export const AuthProvider = ({ children }) => {
     }
   });
 
+  const [donorProfile, setDonorProfile] = useState(() => {
+    try {
+      const savedDp = localStorage.getItem('donorProfile') || localStorage.getItem('lifedrop_donor_profile');
+      if (savedDp) return JSON.parse(savedDp);
+      const savedUser = localStorage.getItem('user') || localStorage.getItem('lifedrop_user');
+      const parsed = savedUser ? JSON.parse(savedUser) : null;
+      return parsed?.donorProfile || null;
+    } catch {
+      return null;
+    }
+  });
+
   const [token, setToken] = useState(() => getStoredAccessToken());
   const [loading, setLoading] = useState(true);
 
   // Sync user state to localStorage
-  const saveUserSession = useCallback((userData, tokenData) => {
+  const saveUserSession = useCallback((userData, tokenData, donorProfileData) => {
     setUser(userData);
     if (userData) {
       localStorage.setItem('user', JSON.stringify(userData));
@@ -122,6 +134,19 @@ export const AuthProvider = ({ children }) => {
     } else {
       localStorage.removeItem('user');
       localStorage.removeItem('lifedrop_user');
+    }
+
+    const resolvedDonorProfile = donorProfileData !== undefined
+      ? donorProfileData
+      : (userData?.donorProfile || null);
+
+    setDonorProfile(resolvedDonorProfile);
+    if (resolvedDonorProfile) {
+      localStorage.setItem('donorProfile', JSON.stringify(resolvedDonorProfile));
+      localStorage.setItem('lifedrop_donor_profile', JSON.stringify(resolvedDonorProfile));
+    } else {
+      localStorage.removeItem('donorProfile');
+      localStorage.removeItem('lifedrop_donor_profile');
     }
 
     if (tokenData?.accessToken) {
@@ -146,6 +171,15 @@ export const AuthProvider = ({ children }) => {
       const roleKey = currentToken.replace('demo_token_', '');
       const demoData = DEMO_USERS[roleKey] || DEMO_USERS.user;
       setUser(demoData);
+      const dp = demoData.donorProfile || null;
+      setDonorProfile(dp);
+      if (dp) {
+        localStorage.setItem('donorProfile', JSON.stringify(dp));
+        localStorage.setItem('lifedrop_donor_profile', JSON.stringify(dp));
+      } else {
+        localStorage.removeItem('donorProfile');
+        localStorage.removeItem('lifedrop_donor_profile');
+      }
       setLoading(false);
       return demoData;
     }
@@ -153,16 +187,25 @@ export const AuthProvider = ({ children }) => {
     try {
       const res = await api.get('/auth/me');
       const userData = res.data?.user || res.data?.data?.user || res.data?.data;
+      const dpData = res.data?.donorProfile ?? res.data?.data?.donorProfile ?? userData?.donorProfile ?? null;
       if (userData) {
         setUser(userData);
+        setDonorProfile(dpData);
         localStorage.setItem('user', JSON.stringify(userData));
         localStorage.setItem('lifedrop_user', JSON.stringify(userData));
+        if (dpData) {
+          localStorage.setItem('donorProfile', JSON.stringify(dpData));
+          localStorage.setItem('lifedrop_donor_profile', JSON.stringify(dpData));
+        } else {
+          localStorage.removeItem('donorProfile');
+          localStorage.removeItem('lifedrop_donor_profile');
+        }
         return userData;
       }
     } catch (err) {
       // If server error or token expired, keep local user if offline, or clear if 401
       if (err.response?.status === 401) {
-        saveUserSession(null, null);
+        saveUserSession(null, null, null);
       }
     } finally {
       setLoading(false);
@@ -174,7 +217,7 @@ export const AuthProvider = ({ children }) => {
     fetchCurrentUser();
 
     const handleUnauthorized = () => {
-      saveUserSession(null, null);
+      saveUserSession(null, null, null);
     };
 
     window.addEventListener('auth:unauthorized', handleUnauthorized);
@@ -195,8 +238,25 @@ export const AuthProvider = ({ children }) => {
         throw new Error(data.message || 'Login failed. Invalid response structure.');
       }
 
-      saveUserSession(loggedUser, { accessToken, refreshToken });
-      return { success: true, user: loggedUser };
+      let dp = data.donorProfile || loggedUser.donorProfile || null;
+      saveUserSession(loggedUser, { accessToken, refreshToken }, dp);
+
+      // If donorProfile was not attached directly on login payload, try fetching /auth/me
+      if (!dp) {
+        try {
+          const meRes = await api.get('/auth/me');
+          if (meRes.data?.donorProfile) {
+            dp = meRes.data.donorProfile;
+            setDonorProfile(dp);
+            localStorage.setItem('donorProfile', JSON.stringify(dp));
+            localStorage.setItem('lifedrop_donor_profile', JSON.stringify(dp));
+          }
+        } catch {
+          // Non-blocking
+        }
+      }
+
+      return { success: true, user: loggedUser, donorProfile: dp };
     } catch (err) {
       const msg = err.response?.data?.message || err.message || 'Login failed. Please check credentials.';
       const error = new Error(msg);
@@ -213,7 +273,7 @@ export const AuthProvider = ({ children }) => {
   const loginAsDemo = (roleKey = 'donor') => {
     const demo = DEMO_USERS[roleKey] || DEMO_USERS.donor;
     const demoToken = `demo_token_${roleKey}`;
-    saveUserSession(demo, { accessToken: demoToken, refreshToken: 'demo_refresh' });
+    saveUserSession(demo, { accessToken: demoToken, refreshToken: 'demo_refresh' }, demo.donorProfile || null);
     return demo;
   };
 
@@ -244,7 +304,7 @@ export const AuthProvider = ({ children }) => {
       const res = await api.post('/auth/verify-otp', { email, otp, type });
       const data = res.data?.data || res.data;
       if (data?.accessToken && data?.user) {
-        saveUserSession(data.user, { accessToken: data.accessToken, refreshToken: data.refreshToken });
+        saveUserSession(data.user, { accessToken: data.accessToken, refreshToken: data.refreshToken }, data.donorProfile || data.user?.donorProfile || null);
       }
       return data;
     } catch (err) {
@@ -258,9 +318,17 @@ export const AuthProvider = ({ children }) => {
           status: 'ACTIVE',
           isEmailVerified: true,
           isVerified: true,
+          donorProfile: {
+            isAvailable: true,
+            isVerified: true,
+            verificationStatus: 'VERIFIED',
+            bloodGroup: 'O+',
+            totalDonations: 0,
+            lastDonationDate: null,
+          },
         };
         const demoToken = 'demo_token_donor';
-        saveUserSession(verifiedUser, { accessToken: demoToken, refreshToken: 'demo_refresh' });
+        saveUserSession(verifiedUser, { accessToken: demoToken, refreshToken: 'demo_refresh' }, verifiedUser.donorProfile);
         return { success: true, user: verifiedUser, message: 'Account verified successfully!' };
       }
       throw new Error(err.response?.data?.message || 'Invalid or expired OTP.');
@@ -302,7 +370,7 @@ export const AuthProvider = ({ children }) => {
     } catch {
       // Non-blocking
     } finally {
-      saveUserSession(null, null);
+      saveUserSession(null, null, null);
     }
   };
 
@@ -314,6 +382,17 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('lifedrop_user', JSON.stringify(updated));
       return updated;
     });
+
+    if (patchData?.donorProfile !== undefined) {
+      setDonorProfile(patchData.donorProfile);
+      if (patchData.donorProfile) {
+        localStorage.setItem('donorProfile', JSON.stringify(patchData.donorProfile));
+        localStorage.setItem('lifedrop_donor_profile', JSON.stringify(patchData.donorProfile));
+      } else {
+        localStorage.removeItem('donorProfile');
+        localStorage.removeItem('lifedrop_donor_profile');
+      }
+    }
   };
 
   const role = useMemo(() => user?.role || null, [user]);
@@ -326,6 +405,8 @@ export const AuthProvider = ({ children }) => {
       token,
       loading,
       isAuthenticated,
+      donorProfile,
+      setDonorProfile,
       login,
       loginAsDemo,
       register,
@@ -336,7 +417,7 @@ export const AuthProvider = ({ children }) => {
       updateUser,
       refreshUser: fetchCurrentUser,
     }),
-    [user, role, token, loading, isAuthenticated, fetchCurrentUser]
+    [user, role, token, loading, isAuthenticated, donorProfile, fetchCurrentUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

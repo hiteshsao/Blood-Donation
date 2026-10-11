@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Heart,
@@ -20,10 +20,119 @@ import { StatCard, StatusBadge, Button } from '../components/common';
 import HospitalDashboardPage from './HospitalDashboardPage';
 import BloodBankDashboardPage from './BloodBankDashboardPage';
 import PendingVerificationScreen from '../components/facility/PendingVerificationScreen';
+import { requestAPI, emergencyAPI, profileAPI } from '../services/api';
 
 export const DashboardOverview = () => {
-  const { user, role } = useAuth();
+  const { user, role, donorProfile, setDonorProfile } = useAuth();
   const userRole = (role || user?.role || 'USER').toUpperCase();
+
+  // State for real API data
+  const [requestsLoading, setRequestsLoading] = useState(true);
+  const [requestsError, setRequestsError] = useState(false);
+  const [activeRequestsCount, setActiveRequestsCount] = useState(null);
+  const [totalRequestsCount, setTotalRequestsCount] = useState(null);
+
+  const [emergenciesLoading, setEmergenciesLoading] = useState(true);
+  const [emergenciesError, setEmergenciesError] = useState(false);
+  const [activeEmergenciesCount, setActiveEmergenciesCount] = useState(null);
+  const [totalEmergenciesCount, setTotalEmergenciesCount] = useState(null);
+
+  const [donorProfileLoading, setDonorProfileLoading] = useState(false);
+  const [donorProfileData, setDonorProfileData] = useState(donorProfile || user?.donorProfile || null);
+
+  useEffect(() => {
+    if (donorProfile) {
+      setDonorProfileData(donorProfile);
+    } else if (user?.donorProfile) {
+      setDonorProfileData(user.donorProfile);
+    }
+  }, [donorProfile, user?.donorProfile]);
+
+  useEffect(() => {
+    // If pending facility or dedicated portal, skip fetching user dashboard metrics
+    if (
+      user?.status === 'PENDING' ||
+      user?.verificationStatus === 'PENDING' ||
+      userRole === 'HOSPITAL' ||
+      userRole === 'BLOOD_BANK'
+    ) {
+      return;
+    }
+
+    let isMounted = true;
+
+    const fetchDashboardData = async () => {
+      // 1. Fetch user blood requests (Active Requests stat)
+      setRequestsLoading(true);
+      setRequestsError(false);
+      try {
+        const res = await requestAPI.getMyRequests();
+        if (!isMounted) return;
+        const list = res.data?.requests || res.data?.data || (Array.isArray(res.data) ? res.data : []);
+        const total = res.data?.pagination?.total ?? list.length;
+        const nonActiveStatuses = ['FULFILLED', 'RECEIVED', 'CANCELLED', 'REJECTED'];
+        const active = list.filter(
+          (r) => !nonActiveStatuses.includes(String(r.status || '').toUpperCase())
+        ).length;
+        setActiveRequestsCount(active);
+        setTotalRequestsCount(total);
+      } catch (err) {
+        if (!isMounted) return;
+        console.warn('Failed to load user blood requests:', err);
+        setRequestsError(true);
+      } finally {
+        if (isMounted) setRequestsLoading(false);
+      }
+
+      // 2. Fetch user emergency requests (Emergency Requests stat)
+      setEmergenciesLoading(true);
+      setEmergenciesError(false);
+      try {
+        const res = emergencyAPI.getMine ? await emergencyAPI.getMine() : await emergencyAPI.getMy();
+        if (!isMounted) return;
+        const list = res.data?.emergencies || res.data?.data || (Array.isArray(res.data) ? res.data : []);
+        const active = list.filter((e) => {
+          const status = String(e.status || '').toUpperCase();
+          return status === 'ACTIVE' || status === 'DONORS_ASSIGNED';
+        }).length;
+        setActiveEmergenciesCount(active);
+        setTotalEmergenciesCount(list.length);
+      } catch (err) {
+        if (!isMounted) return;
+        console.warn('Failed to load user emergency requests:', err);
+        setEmergenciesError(true);
+      } finally {
+        if (isMounted) setEmergenciesLoading(false);
+      }
+
+      // 3. Fetch up-to-date donor profile if donorProfile exists or user has donor role
+      if (donorProfile || user?.donorProfile || userRole === 'DONOR') {
+        setDonorProfileLoading(true);
+        try {
+          const res = await profileAPI.getMe();
+          if (!isMounted) return;
+          const profile = res.data?.donorProfile || res.data?.user?.donorProfile || res.data?.profile;
+          if (profile) {
+            setDonorProfileData(profile);
+            if (setDonorProfile) {
+              setDonorProfile(profile);
+            }
+          }
+        } catch (err) {
+          if (!isMounted) return;
+          console.warn('Failed to load donor profile data:', err);
+        } finally {
+          if (isMounted) setDonorProfileLoading(false);
+        }
+      }
+    };
+
+    fetchDashboardData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [userRole, user?.status, user?.verificationStatus, donorProfile, user?.donorProfile, setDonorProfile]);
 
   // 1. Dedicated Verification Screen if Account Status is PENDING
   if (user?.status === 'PENDING' || user?.verificationStatus === 'PENDING') {
@@ -40,37 +149,174 @@ export const DashboardOverview = () => {
     return <BloodBankDashboardPage />;
   }
 
+  const activeDonorProfile = donorProfile || donorProfileData || user?.donorProfile;
+  const hasDonorProfile = Boolean(activeDonorProfile);
+
   const getStats = () => {
-    switch (userRole) {
-      case 'DONOR':
-        return [
-          { title: 'Total Donations', value: user?.donorProfile?.totalDonations || '4 Units', subtitle: 'Lifetime voluntary contributions', icon: <Heart className="w-5 h-5 text-red-600" />, color: 'red' },
-          { title: 'Lives Saved', value: '12 Lives', subtitle: 'Calculated impact (x3 multiplier)', icon: <Users className="w-5 h-5 text-emerald-600" />, color: 'emerald' },
-          { title: 'Next Eligible Date', value: 'Immediate', subtitle: '90-day rest period completed', icon: <Calendar className="w-5 h-5 text-blue-600" />, color: 'blue' },
-          { title: 'Verification Status', value: 'Certified', subtitle: 'Medical fitness cleared', icon: <ShieldCheck className="w-5 h-5 text-amber-600" />, color: 'amber' },
-        ];
-      case 'HOSPITAL':
-        return [
-          { title: 'Active Emergency Requests', value: '2 Pending', subtitle: 'High-priority surgical cases', icon: <AlertTriangle className="w-5 h-5 text-red-600" />, color: 'red' },
-          { title: 'Units Received', value: '64 Units', subtitle: 'Past 30 days transfusion intake', icon: <Droplet className="w-5 h-5 text-emerald-600" />, color: 'emerald' },
-          { title: 'Matched Donors', value: '18 Nearby', subtitle: 'Within 10km radius of facility', icon: <Users className="w-5 h-5 text-blue-600" />, color: 'blue' },
-          { title: 'Facility Status', value: 'NABH Cleared', subtitle: 'Accreditation active', icon: <Building2 className="w-5 h-5 text-amber-600" />, color: 'amber' },
-        ];
-      case 'BLOOD_BANK':
-        return [
-          { title: 'Available Units', value: '382 Units', subtitle: 'Across 8 standard blood groups', icon: <Droplet className="w-5 h-5 text-red-600" />, color: 'red' },
-          { title: 'Low Stock Alerts', value: 'O- & B-', subtitle: 'Below critical safety buffer', icon: <AlertTriangle className="w-5 h-5 text-amber-600" />, color: 'amber' },
-          { title: 'Units Collected', value: '115 Units', subtitle: 'This week from registered donors', icon: <Heart className="w-5 h-5 text-emerald-600" />, color: 'emerald' },
-          { title: 'Hospital Orders', value: '12 In Progress', subtitle: 'Awaiting dispatch confirmation', icon: <GitPullRequest className="w-5 h-5 text-blue-600" />, color: 'blue' },
-        ];
-      default:
-        return [
-          { title: 'Active Requests', value: '1 Open', subtitle: 'Currently matching with donors', icon: <GitPullRequest className="w-5 h-5 text-red-600" />, color: 'red' },
-          { title: 'Nearby Donors', value: '42 Found', subtitle: 'In your city matching criteria', icon: <Users className="w-5 h-5 text-emerald-600" />, color: 'emerald' },
-          { title: 'Blood Group', value: user?.bloodGroup || 'O+', subtitle: 'Registered blood classification', icon: <Droplet className="w-5 h-5 text-blue-600" />, color: 'blue' },
-          { title: 'Helpline Access', value: '24x7 Ready', subtitle: 'Dial 108 or 104 in emergencies', icon: <Activity className="w-5 h-5 text-amber-600" />, color: 'amber' },
-        ];
+    if (userRole === 'HOSPITAL') {
+      return [
+        { title: 'Active Emergency Requests', value: '2 Pending', subtitle: 'High-priority surgical cases', icon: <AlertTriangle className="w-5 h-5 text-red-600" />, color: 'red' },
+        { title: 'Units Received', value: '64 Units', subtitle: 'Past 30 days transfusion intake', icon: <Droplet className="w-5 h-5 text-emerald-600" />, color: 'emerald' },
+        { title: 'Matched Donors', value: '18 Nearby', subtitle: 'Within 10km radius of facility', icon: <Users className="w-5 h-5 text-blue-600" />, color: 'blue' },
+        { title: 'Facility Status', value: 'NABH Cleared', subtitle: 'Accreditation active', icon: <Building2 className="w-5 h-5 text-amber-600" />, color: 'amber' },
+      ];
     }
+
+    if (userRole === 'BLOOD_BANK') {
+      return [
+        { title: 'Available Units', value: '382 Units', subtitle: 'Across 8 standard blood groups', icon: <Droplet className="w-5 h-5 text-red-600" />, color: 'red' },
+        { title: 'Low Stock Alerts', value: 'O- & B-', subtitle: 'Below critical safety buffer', icon: <AlertTriangle className="w-5 h-5 text-amber-600" />, color: 'amber' },
+        { title: 'Units Collected', value: '115 Units', subtitle: 'This week from registered donors', icon: <Heart className="w-5 h-5 text-emerald-600" />, color: 'emerald' },
+        { title: 'Hospital Orders', value: '12 In Progress', subtitle: 'Awaiting dispatch confirmation', icon: <GitPullRequest className="w-5 h-5 text-blue-600" />, color: 'blue' },
+      ];
+    }
+
+    // Active Requests stat value & subtitle
+    let activeReqVal = '...';
+    let activeReqSub = 'Loading requests...';
+    if (!requestsLoading) {
+      if (requestsError) {
+        activeReqVal = '--';
+        activeReqSub = 'Failed to load requests';
+      } else {
+        activeReqVal = `${activeRequestsCount ?? 0} Open`;
+        activeReqSub = `Total ${totalRequestsCount ?? 0} requests`;
+      }
+    }
+
+    // Decision based on useAuth() donorProfile instead of role === 'DONOR'
+    if (hasDonorProfile) {
+      const dp = activeDonorProfile;
+
+      // Total Donations
+      let totalDonationsVal = '...';
+      let totalDonationsSub = 'Lifetime voluntary contributions';
+      if (!donorProfileLoading || dp) {
+        if (dp && typeof dp.totalDonations === 'number') {
+          totalDonationsVal = `${dp.totalDonations} ${dp.totalDonations === 1 ? 'Unit' : 'Units'}`;
+        } else {
+          totalDonationsVal = '--';
+          totalDonationsSub = 'No donation history';
+        }
+      }
+
+      // Next Eligible Date
+      let nextEligibleVal = '...';
+      let nextEligibleSub = 'Rest period status';
+      if (!donorProfileLoading || dp) {
+        if (dp?.nextEligibleDate) {
+          const eligibleDate = new Date(dp.nextEligibleDate);
+          if (!isNaN(eligibleDate.getTime())) {
+            if (eligibleDate <= new Date()) {
+              nextEligibleVal = 'Eligible now';
+              nextEligibleSub = 'Rest period completed';
+            } else {
+              nextEligibleVal = eligibleDate.toLocaleDateString('en-IN', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+              });
+              nextEligibleSub = 'Rest period underway';
+            }
+          } else {
+            nextEligibleVal = '--';
+          }
+        } else if (dp && (dp.totalDonations === 0 || !dp.lastDonationDate)) {
+          nextEligibleVal = 'Eligible now';
+          nextEligibleSub = 'Ready for donation';
+        } else {
+          nextEligibleVal = '--';
+        }
+      }
+
+      // Verification Status
+      let verificationVal = '...';
+      let verificationSub = 'Profile verification status';
+      if (!donorProfileLoading || dp) {
+        const rawStatus = dp?.verificationStatus || (dp?.isVerified ? 'VERIFIED' : null) || user?.verificationStatus;
+        if (rawStatus) {
+          verificationVal = String(rawStatus).charAt(0).toUpperCase() + String(rawStatus).slice(1).toLowerCase();
+          verificationSub = String(rawStatus).toUpperCase() === 'VERIFIED' ? 'Medical fitness cleared' : 'Verification underway';
+        } else {
+          verificationVal = '--';
+        }
+      }
+
+      return [
+        {
+          title: 'Total Donations',
+          value: totalDonationsVal,
+          subtitle: totalDonationsSub,
+          icon: <Heart className="w-5 h-5 text-red-600" />,
+          color: 'red',
+        },
+        {
+          title: 'Next Eligible Date',
+          value: nextEligibleVal,
+          subtitle: nextEligibleSub,
+          icon: <Calendar className="w-5 h-5 text-blue-600" />,
+          color: 'blue',
+        },
+        {
+          title: 'Verification Status',
+          value: verificationVal,
+          subtitle: verificationSub,
+          icon: <ShieldCheck className="w-5 h-5 text-amber-600" />,
+          color: 'amber',
+        },
+        {
+          title: 'Active Requests',
+          value: activeReqVal,
+          subtitle: activeReqSub,
+          icon: <GitPullRequest className="w-5 h-5 text-emerald-600" />,
+          color: 'emerald',
+        },
+      ];
+    }
+
+    // Normal User Cards (when donorProfile is absent)
+    let emergencyVal = '...';
+    let emergencySub = 'Loading broadcasts...';
+    if (!emergenciesLoading) {
+      if (emergenciesError) {
+        emergencyVal = '--';
+        emergencySub = 'Failed to load broadcasts';
+      } else {
+        emergencyVal = `${activeEmergenciesCount ?? 0} Active`;
+        emergencySub = `Total ${totalEmergenciesCount ?? 0} broadcasts`;
+      }
+    }
+
+    return [
+      {
+        title: 'Active Requests',
+        value: activeReqVal,
+        subtitle: activeReqSub,
+        icon: <GitPullRequest className="w-5 h-5 text-red-600" />,
+        color: 'red',
+      },
+      {
+        title: 'Emergency Requests',
+        value: emergencyVal,
+        subtitle: emergencySub,
+        icon: <AlertTriangle className="w-5 h-5 text-emerald-600" />,
+        color: 'emerald',
+      },
+      {
+        title: 'Blood Group',
+        value: user?.bloodGroup || 'Not set',
+        subtitle: user?.bloodGroup ? 'Registered blood classification' : 'Update in profile settings',
+        icon: <Droplet className="w-5 h-5 text-blue-600" />,
+        color: 'blue',
+      },
+      {
+        title: 'Helpline Access',
+        value: '24x7 Ready',
+        subtitle: 'Dial 108 or 104 in emergencies',
+        icon: <Activity className="w-5 h-5 text-amber-600" />,
+        color: 'amber',
+      },
+    ];
   };
 
   const stats = getStats();
@@ -82,7 +328,7 @@ export const DashboardOverview = () => {
         <div className="relative z-10 max-w-xl space-y-3">
           <div className="flex items-center gap-2">
             <span className="px-3 py-1 rounded-full bg-white/20 text-[11px] font-black uppercase tracking-wider backdrop-blur-sm">
-              {userRole} Transfusion Hub
+              {hasDonorProfile ? 'DONOR' : userRole} Transfusion Hub
             </span>
             {user?.bloodGroup && (
               <span className="px-2.5 py-0.5 rounded-full bg-white text-[#C62828] text-xs font-black">
@@ -96,7 +342,7 @@ export const DashboardOverview = () => {
           </h1>
 
           <p className="text-xs sm:text-sm text-red-100 font-medium leading-relaxed">
-            Your profile is active on the LifeDrop network in <strong className="text-white">{user?.city || 'Mumbai'}</strong>.
+            Your profile is active on the LifeDrop network in <strong className="text-white">{user?.city || 'Chhattisgarh'}</strong>.
             All transfusion requests and compatible donor matches are updated in real time.
           </p>
 
@@ -108,7 +354,7 @@ export const DashboardOverview = () => {
                 className="bg-white text-[#C62828] hover:bg-red-50 border-none shadow-md"
                 rightIcon={<ArrowRight className="w-4 h-4" />}
               >
-                {userRole === 'DONOR' ? 'Find Active Blood Requests' : 'Create Blood Request'}
+                {hasDonorProfile ? 'Find Active Blood Requests' : 'Create Blood Request'}
               </Button>
             </Link>
 
@@ -292,7 +538,7 @@ export const DashboardOverview = () => {
           </div>
 
           <div className="pt-6">
-            <Link to="/requests?urgency=CRITICAL">
+            <Link to="/emergency">
               <Button
                 variant="secondary"
                 size="md"

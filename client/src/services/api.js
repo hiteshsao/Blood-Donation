@@ -306,6 +306,9 @@ export const adminAPI = {
   getAuditLogs: (params) => api.get('/v1/admin/audit-logs', { params }),
   getAuditFilters: () => api.get('/v1/admin/audit-logs/filters'),
   getAuditLogById: (id) => api.get(`/v1/admin/audit-logs/${id}`),
+
+  // Reports
+  getReports: (params) => api.get('/v1/admin/reports', { params }),
 };
 
 // Compatibility aliases

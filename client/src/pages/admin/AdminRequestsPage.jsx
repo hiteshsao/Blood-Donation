@@ -75,16 +75,22 @@ export const AdminRequestsPage = () => {
         const formatted = data.map((d) => ({
           id: d.user?._id || d.user || d._id,
           name: d.name || d.user?.name || 'Voluntary Donor',
-          bloodGroup: d.bloodGroup || 'O+',
-          phone: d.phone || d.user?.phone || '+91 98000 00000',
-          distanceKm: d.distanceKm || 2.5,
+          bloodGroup: d.bloodGroup || d.user?.bloodGroup || '-',
+          phone: d.phone || d.user?.phone || null,
+          distanceKm: typeof d.distanceKm === 'number' ? d.distanceKm : null,
         }));
         setDonorsList(formatted);
         if (formatted[0]) {
           setSelectedDonorId(formatted[0].id);
         }
+      } else {
+        setDonorsList([]);
+        setSelectedDonorId('');
       }
-    }).catch(() => {});
+    }).catch(() => {
+      setDonorsList([]);
+      setSelectedDonorId('');
+    });
   }, []);
 
   // 1. Open Assign Donor Modal
@@ -95,7 +101,7 @@ export const AdminRequestsPage = () => {
 
   const handleConfirmAssign = async (e) => {
     e.preventDefault();
-    if (!selectedReqToAssign) return;
+    if (!selectedReqToAssign || !selectedDonorId || donorsList.length === 0) return;
 
     const chosenDonor = donorsList.find((d) => d.id === selectedDonorId) || { name: 'Assigned Donor', phone: '' };
 
@@ -310,12 +316,26 @@ export const AdminRequestsPage = () => {
 
             <Select
               label="Select Compatible Voluntary Donor"
-              options={donorsList.map((d) => ({
-                value: d.id,
-                label: `${d.name} (${d.bloodGroup}) • ${d.distanceKm} km away • ${d.phone}`,
-              }))}
+              options={
+                donorsList.length === 0
+                  ? [{ value: '', label: 'No donors available' }]
+                  : donorsList.map((d) => {
+                      const parts = [`${d.name} (${d.bloodGroup || '-'})`];
+                      if (d.distanceKm !== null && d.distanceKm !== undefined) {
+                        parts.push(`${d.distanceKm} km away`);
+                      }
+                      if (d.phone) {
+                        parts.push(d.phone);
+                      }
+                      return {
+                        value: d.id,
+                        label: parts.join(' • '),
+                      };
+                    })
+              }
               value={selectedDonorId}
               onChange={(e) => setSelectedDonorId(e.target.value)}
+              disabled={donorsList.length === 0}
             />
 
             <div className="pt-2 flex justify-end gap-3">
@@ -332,9 +352,10 @@ export const AdminRequestsPage = () => {
                 size="md"
                 type="submit"
                 isLoading={isAssigning}
+                disabled={isAssigning || donorsList.length === 0 || !selectedDonorId}
                 leftIcon={<UserPlus className="w-4 h-4" />}
               >
-                Assign & Dispatch Alert
+                {donorsList.length === 0 ? 'No donors available' : 'Assign & Dispatch Alert'}
               </Button>
             </div>
           </form>

@@ -5,15 +5,8 @@ import {
   PlusCircle,
   Clock,
   CheckCircle2,
-  AlertTriangle,
-  XCircle,
   Building2,
-  Calendar,
-  User,
-  Phone,
-  Droplet,
   ArrowRight,
-  Filter,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { requestAPI, hospitalAPI } from '../services/api';
@@ -26,7 +19,6 @@ import {
   Loader,
   EmptyState,
   ConfirmDialog,
-  Modal,
 } from '../components/common';
 
 const BLOOD_GROUPS = [
@@ -71,6 +63,7 @@ const isEmergencyRequest = (req) => {
 export const BloodRequestsPage = () => {
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
+  const isHospitalUser = user?.role === 'HOSPITAL';
 
   const [activeTab, setActiveTab] = useState(
     searchParams.get('create') ? 'create' : 'my'
@@ -78,6 +71,7 @@ export const BloodRequestsPage = () => {
 
   const [myRequests, setMyRequests] = useState([]);
   const [hospitals, setHospitals] = useState([]);
+  const [hospitalProfile, setHospitalProfile] = useState(null);
   const [loadingHospitals, setLoadingHospitals] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -92,7 +86,7 @@ export const BloodRequestsPage = () => {
     urgency: searchParams.get('urgency') || 'URGENT',
     hospitalId: '',
     hospitalName: '',
-    city: user?.city || 'Mumbai',
+    city: isHospitalUser ? (user?.city || '') : (user?.city || 'Mumbai'),
     contactPhone: user?.phone || '',
     requiredBy: '',
     notes: '',
@@ -141,8 +135,26 @@ export const BloodRequestsPage = () => {
 
   useEffect(() => {
     fetchMyRequests();
-    fetchHospitals();
-  }, []);
+    if (isHospitalUser) {
+      hospitalAPI
+        .getProfile()
+        .then((res) => {
+          const profile = res.data?.hospital || res.data?.data || res.data;
+          if (profile) {
+            setHospitalProfile(profile);
+            const profCity = profile.city || profile.address?.city;
+            if (profCity) {
+              setFormData((prev) => ({ ...prev, city: profCity }));
+            }
+          }
+        })
+        .catch((err) => {
+          console.warn('Failed to load hospital profile:', err.message);
+        });
+    } else {
+      fetchHospitals();
+    }
+  }, [isHospitalUser]);
 
   useEffect(() => {
     if (searchParams.get('create')) {
@@ -174,9 +186,29 @@ export const BloodRequestsPage = () => {
 
   const handleCreateRequest = async (e) => {
     e.preventDefault();
-    if (!formData.patientName || !formData.hospitalId) {
+    if (!formData.patientName) {
+      toast.error('Patient Name is required.');
+      return;
+    }
+
+    if (!isHospitalUser && !formData.hospitalId) {
       toast.error('Patient Name and registered Hospital selection are required.');
       return;
+    }
+
+    let requestCity = formData.city?.trim() || '';
+    if (isHospitalUser) {
+      requestCity =
+        hospitalProfile?.city ||
+        hospitalProfile?.address?.city ||
+        user?.city ||
+        formData.city?.trim() ||
+        '';
+
+      if (!requestCity) {
+        toast.error('Add your city in Profile first');
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -186,10 +218,7 @@ export const BloodRequestsPage = () => {
         bloodGroup: formData.bloodGroup,
         units: Number(formData.units),
         urgency: formData.urgency,
-        hospital: formData.hospitalId,
-        hospitalId: formData.hospitalId,
-        hospitalName: formData.hospitalName,
-        city: formData.city,
+        city: isHospitalUser ? requestCity : formData.city,
         contactNumber: formData.contactPhone,
         contactPhone: formData.contactPhone,
         donorId: searchParams.get('donorId') || undefined,
@@ -197,6 +226,12 @@ export const BloodRequestsPage = () => {
         requiredBy: formData.requiredBy || undefined,
         notes: formData.notes,
       };
+
+      if (!isHospitalUser) {
+        payload.hospital = formData.hospitalId;
+        payload.hospitalId = formData.hospitalId;
+        payload.hospitalName = formData.hospitalName;
+      }
 
       await requestAPI.create(payload);
       toast.success('Blood request submitted! Clinical routing initiated.');
@@ -514,20 +549,37 @@ export const BloodRequestsPage = () => {
                 onChange={handleChange}
               />
 
-              <Select
-                label="Admitted Hospital / Medical Center"
-                name="hospitalId"
-                required
-                value={formData.hospitalId}
-                onChange={handleHospitalSelect}
-                options={[
-                  { value: '', label: loadingHospitals ? 'Loading registered hospitals...' : '-- Select Registered Hospital --' },
-                  ...hospitals.map((h) => ({
-                    value: h._id,
-                    label: `${h.name} (${h.city || h.address?.city || 'Hospital'})`,
-                  })),
-                ]}
-              />
+              {isHospitalUser ? (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Admitted Hospital / Medical Center
+                  </label>
+                  <div className="px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 text-sm font-semibold flex items-center gap-2">
+                    <Building2 className="w-4 h-4 text-[#C62828] shrink-0" />
+                    <span>
+                      Requesting as:{' '}
+                      <strong className="text-slate-900">
+                        {hospitalProfile?.name || user?.name || 'Hospital'}
+                      </strong>
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <Select
+                  label="Admitted Hospital / Medical Center"
+                  name="hospitalId"
+                  required
+                  value={formData.hospitalId}
+                  onChange={handleHospitalSelect}
+                  options={[
+                    { value: '', label: loadingHospitals ? 'Loading registered hospitals...' : '-- Select Registered Hospital --' },
+                    ...hospitals.map((h) => ({
+                      value: h._id,
+                      label: `${h.name} (${h.city || h.address?.city || 'Hospital'})`,
+                    })),
+                  ]}
+                />
+              )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -566,7 +618,7 @@ export const BloodRequestsPage = () => {
                 label="City / Region"
                 name="city"
                 placeholder="Mumbai"
-                required
+                required={!isHospitalUser}
                 value={formData.city}
                 onChange={handleChange}
               />

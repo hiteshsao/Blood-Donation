@@ -44,16 +44,17 @@ import PendingVerificationScreen from '../components/facility/PendingVerificatio
 
 const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
-const INITIAL_INVENTORY = [
-  { group: 'O+', available: 24, reserved: 3, expired: 0, threshold: 10, lastUpdated: 'Today' },
-  { group: 'O-', available: 3, reserved: 2, expired: 0, threshold: 6, lastUpdated: 'Today' }, // LOW STOCK!
-  { group: 'A+', available: 18, reserved: 2, expired: 1, threshold: 8, lastUpdated: 'Yesterday' },
-  { group: 'A-', available: 5, reserved: 1, expired: 0, threshold: 5, lastUpdated: 'Today' }, // AT THRESHOLD
-  { group: 'B+', available: 28, reserved: 4, expired: 0, threshold: 10, lastUpdated: 'Today' },
-  { group: 'B-', available: 4, reserved: 2, expired: 0, threshold: 5, lastUpdated: 'Today' }, // LOW STOCK!
-  { group: 'AB+', available: 12, reserved: 1, expired: 0, threshold: 6, lastUpdated: '2 days ago' },
-  { group: 'AB-', available: 2, reserved: 1, expired: 0, threshold: 4, lastUpdated: 'Today' }, // LOW STOCK!
-];
+const EMPTY_INVENTORY = BLOOD_GROUPS.map((group) => ({
+  group,
+  bloodGroup: group,
+  available: 0,
+  reserved: 0,
+  expired: 0,
+  threshold: 5,
+  lowStockThreshold: 5,
+  lastUpdated: '-',
+  batches: [],
+}));
 
 const INITIAL_APPOINTMENTS = [
   {
@@ -171,7 +172,7 @@ export const BloodBankDashboardPage = () => {
   const bankName = user?.bloodBankName || user?.name || 'RedCross Regional Blood Center';
 
   // Inventory State
-  const [inventory, setInventory] = useState(INITIAL_INVENTORY);
+  const [inventory, setInventory] = useState(EMPTY_INVENTORY);
   const [editingGroup, setEditingGroup] = useState(null);
   const [editStockModalOpen, setEditStockModalOpen] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -180,7 +181,7 @@ export const BloodBankDashboardPage = () => {
     threshold: 6,
   });
   const [isUpdatingStock, setIsUpdatingStock] = useState(false);
-  const [loadingInventory, setLoadingInventory] = useState(false);
+  const [loadingInventory, setLoadingInventory] = useState(true);
 
   // Fetch live inventory from database
   const fetchInventory = useCallback(async () => {
@@ -188,23 +189,37 @@ export const BloodBankDashboardPage = () => {
     try {
       const res = await bloodBankAPI.getInventory();
       const list = res.data?.inventory || res.data?.data || res.data;
-      if (Array.isArray(list) && list.length > 0) {
-        const formatted = list.map((item) => ({
-          _id: item._id,
-          group: item.bloodGroup || item.group,
-          bloodGroup: item.bloodGroup || item.group,
-          available: item.available ?? item.unitsAvailable ?? 0,
-          reserved: item.reserved ?? item.unitsReserved ?? 0,
-          expired: item.expired ?? item.unitsExpired ?? 0,
-          threshold: item.lowStockThreshold || item.threshold || 5,
-          lowStockThreshold: item.lowStockThreshold || item.threshold || 5,
-          lastUpdated: item.lastUpdated ? new Date(item.lastUpdated).toLocaleDateString() : 'Today',
-          batches: item.batches || [],
-        }));
-        setInventory(formatted);
+      if (Array.isArray(list)) {
+        const merged = EMPTY_INVENTORY.map((emptyItem) => {
+          const found = list.find(
+            (item) => (item.bloodGroup || item.group) === emptyItem.group
+          );
+          if (found) {
+            return {
+              ...emptyItem,
+              _id: found._id,
+              available: found.available ?? found.unitsAvailable ?? 0,
+              reserved: found.reserved ?? found.unitsReserved ?? 0,
+              expired: found.expired ?? found.unitsExpired ?? 0,
+              threshold: found.lowStockThreshold || found.threshold || 5,
+              lowStockThreshold: found.lowStockThreshold || found.threshold || 5,
+              lastUpdated: found.lastUpdated
+                ? new Date(found.lastUpdated).toLocaleDateString()
+                : 'Today',
+              batches: found.batches || [],
+            };
+          }
+          return emptyItem;
+        });
+        setInventory(merged);
+      } else {
+        setInventory(EMPTY_INVENTORY);
       }
     } catch (err) {
-      console.warn('[BloodBank] Live inventory fetch failed, keeping fallback:', err.message);
+      setInventory(EMPTY_INVENTORY);
+      toast.error(
+        err.response?.data?.message || 'Could not load inventory. Showing zero stock.'
+      );
     } finally {
       setLoadingInventory(false);
     }
@@ -777,10 +792,14 @@ export const BloodBankDashboardPage = () => {
             />
             <StatCard
               title="Low Stock Alerts"
-              value={`${lowStockGroups.length} Groups`}
-              subtitle={lowStockGroups.map((g) => g.group).join(', ') || 'All safety thresholds met'}
+              value={loadingInventory ? 'Loading...' : `${lowStockGroups.length} Groups`}
+              subtitle={
+                loadingInventory
+                  ? 'Verifying stock thresholds...'
+                  : (lowStockGroups.map((g) => g.group).join(', ') || 'All safety thresholds met')
+              }
               icon={<AlertTriangle className="w-5 h-5 text-amber-600" />}
-              color={lowStockGroups.length > 0 ? 'amber' : 'emerald'}
+              color={!loadingInventory && lowStockGroups.length > 0 ? 'amber' : 'emerald'}
             />
             <StatCard
               title="Today's Appointments"
@@ -814,7 +833,7 @@ export const BloodBankDashboardPage = () => {
 
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 pt-2">
               {inventory.map((item) => {
-                const isLow = item.available <= item.threshold;
+                const isLow = !loadingInventory && item.available <= item.threshold;
                 return (
                   <div
                     key={item.group}
@@ -960,7 +979,7 @@ export const BloodBankDashboardPage = () => {
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-lg font-black text-slate-900">Live Blood Inventory Table</h3>
-                {lowStockGroups.length > 0 && (
+                {!loadingInventory && lowStockGroups.length > 0 && (
                   <span className="text-xs font-black text-white bg-red-600 px-2.5 py-0.5 rounded-full animate-pulse">
                     {lowStockGroups.length} Critical Groups
                   </span>
@@ -1007,7 +1026,7 @@ export const BloodBankDashboardPage = () => {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {inventory.map((item) => {
-                  const isLow = item.available <= item.threshold;
+                  const isLow = !loadingInventory && item.available <= item.threshold;
                   return (
                     <tr
                       key={item.group}

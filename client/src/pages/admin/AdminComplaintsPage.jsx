@@ -6,61 +6,13 @@ import {
   Send,
   RefreshCw,
   Star,
-  Clock,
-  AlertTriangle,
-  Building2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { adminAPI, feedbackAPI } from '../../services/api';
-import { DataTable, StatusBadge, Button, Modal, Input, Select } from '../../components/common';
-
-const FALLBACK_COMPLAINTS = [
-  {
-    _id: 'fb-adm-01',
-    type: 'COMPLAINT',
-    category: 'HOSPITAL',
-    submitterName: 'Dr. S. K. Nambiar',
-    submitterRole: 'HOSPITAL',
-    subject: 'Delay in blood bank acknowledgment for O- requisition',
-    message: 'We experienced an uncharacteristic 45-minute delay before the blood bank verified cross-matching for an emergency cardiac case.',
-    rating: 2,
-    status: 'IN_PROGRESS',
-    assignedAdmin: 'Administrator Chief',
-    adminReply: 'Liaised with blood bank supervisor to enforce priority bypass.',
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 18).toISOString(),
-  },
-  {
-    _id: 'fb-adm-02',
-    type: 'FEEDBACK',
-    category: 'DONATION_EXPERIENCE',
-    submitterName: 'Vikram Malhotra',
-    submitterRole: 'DONOR',
-    subject: 'Courteous phlebotomy team at Bandra Center',
-    message: 'The phlebotomist was extremely professional and the procedure was finished in under 15 minutes. Very hygienic environment.',
-    rating: 5,
-    status: 'RESOLVED',
-    assignedAdmin: 'Administrator Chief',
-    adminReply: 'Relayed commendation to Bandra clinical superintendent.',
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 48).toISOString(),
-  },
-  {
-    _id: 'fb-adm-03',
-    type: 'COMPLAINT',
-    category: 'APP_ISSUE',
-    submitterName: 'Rahul Sharma',
-    submitterRole: 'USER',
-    subject: 'Geolocation pin was slightly off on mobile map',
-    message: 'When tapping Use My Location, the browser picked up the cellular tower 1km away.',
-    rating: 3,
-    status: 'PENDING',
-    assignedAdmin: 'Unassigned',
-    adminReply: '',
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 6).toISOString(),
-  },
-];
+import { adminAPI } from '../../services/api';
+import { DataTable, StatusBadge, Button, Modal, Select } from '../../components/common';
 
 export const AdminComplaintsPage = () => {
-  const [complaints, setComplaints] = useState(FALLBACK_COMPLAINTS);
+  const [complaints, setComplaints] = useState([]);
   const [loading, setLoading] = useState(false);
 
   // Reply Modal State
@@ -78,11 +30,12 @@ export const AdminComplaintsPage = () => {
     try {
       const res = await adminAPI.getComplaints();
       const data = res.data?.data || res.data?.complaints || res.data;
-      if (Array.isArray(data) && data.length > 0) {
+      if (Array.isArray(data)) {
         setComplaints(data);
       }
-    } catch {
-      // Retain fallback data
+    } catch (err) {
+      setComplaints([]);
+      toast.error(err.response?.data?.message || 'Failed to load data.');
     } finally {
       setLoading(false);
     }
@@ -113,16 +66,8 @@ export const AdminComplaintsPage = () => {
       );
       toast.success(`Ticket assigned to ${selectedAdminName}.`);
       setAssignModalOpen(false);
-    } catch {
-      setComplaints((prev) =>
-        prev.map((c) =>
-          c._id === selectedTicket._id
-            ? { ...c, assignedAdmin: selectedAdminName, status: 'IN_PROGRESS' }
-            : c
-        )
-      );
-      toast.success(`Ticket assigned to ${selectedAdminName}.`);
-      setAssignModalOpen(false);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Action failed.');
     }
   };
 
@@ -149,16 +94,8 @@ export const AdminComplaintsPage = () => {
       );
       toast.success('Official reply sent to user.');
       setReplyModalOpen(false);
-    } catch {
-      setComplaints((prev) =>
-        prev.map((c) =>
-          c._id === selectedTicket._id
-            ? { ...c, adminReply: replyText, status: 'IN_PROGRESS' }
-            : c
-        )
-      );
-      toast.success('Official reply dispatched.');
-      setReplyModalOpen(false);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Action failed.');
     } finally {
       setIsSubmittingReply(false);
     }
@@ -172,11 +109,8 @@ export const AdminComplaintsPage = () => {
         prev.map((c) => (c._id === ticket._id ? { ...c, status: 'RESOLVED' } : c))
       );
       toast.success(`Ticket ${ticket._id} marked as RESOLVED.`);
-    } catch {
-      setComplaints((prev) =>
-        prev.map((c) => (c._id === ticket._id ? { ...c, status: 'RESOLVED' } : c))
-      );
-      toast.success(`Ticket ${ticket._id} marked as RESOLVED.`);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Action failed.');
     }
   };
 

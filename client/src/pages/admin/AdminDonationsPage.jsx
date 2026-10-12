@@ -16,84 +16,26 @@ import { DataTable, StatusBadge, Button, ConfirmDialog } from '../../components/
 
 const getDonorName = (d) => d.donorName || d.donor?.name || 'Unknown Donor';
 const getDonorPhone = (d) => d.donorPhone || d.donor?.phone || '';
-const fetchDonations = async () => {
-  setLoading(true);
+
+const fetchDonationsHelper = async () => {
   try {
     const res = await adminAPI.getDonations();
     const data = res.data?.data || res.data?.donations || res.data;
-    if (Array.isArray(data) && data.length > 0) {
-      setDonations(
-        data.map((d) => ({
-          ...d,
-          donorName: getDonorName(d),
-          donorPhone: getDonorPhone(d),
-        }))
-      );
+    if (Array.isArray(data)) {
+      return data.map((d) => ({
+        ...d,
+        donorName: getDonorName(d),
+        donorPhone: getDonorPhone(d),
+      }));
     }
+    return [];
   } catch {
-    // Retain fallback data
-  } finally {
-    setLoading(false);
+    return [];
   }
 };
 
-const FALLBACK_DONATIONS = [
-  {
-    _id: 'don-adm-101',
-    donorName: 'Vikram Malhotra',
-    donorPhone: '+91 98765 43210',
-    bloodBankName: 'RedCross Regional Blood Center',
-    city: 'Mumbai',
-    bloodGroup: 'O-',
-    units: 1,
-    bagNo: 'WB-2026-9021',
-    phlebotomist: 'Sister Nalini Rao',
-    donatedAt: '2026-10-01T09:30:00Z',
-    status: 'VERIFIED',
-  },
-  {
-    _id: 'don-adm-102',
-    donorName: 'Aakash Verma',
-    donorPhone: '+91 98765 43211',
-    bloodBankName: 'Apollo Hospital Blood Center',
-    city: 'Mumbai',
-    bloodGroup: 'O+',
-    units: 1,
-    bagNo: 'WB-2026-9022',
-    phlebotomist: 'Dr. V. K. Sen',
-    donatedAt: '2026-10-01T10:15:00Z',
-    status: 'VERIFIED',
-  },
-  {
-    _id: 'don-adm-103',
-    donorName: 'Sameer Kothari',
-    donorPhone: '+91 98765 43218',
-    bloodBankName: 'Civil Hospital Transfusion Unit',
-    city: 'Mumbai',
-    bloodGroup: 'B+',
-    units: 1,
-    bagNo: 'WB-2026-9031',
-    phlebotomist: 'Dr. R. K. Shinde',
-    donatedAt: '2026-10-01T12:00:00Z',
-    status: 'PENDING_AUDIT',
-  },
-  {
-    _id: 'don-adm-104',
-    donorName: 'Priya Sharma',
-    donorPhone: '+91 98765 43212',
-    bloodBankName: 'RedCross Regional Blood Center',
-    city: 'Mumbai',
-    bloodGroup: 'A+',
-    units: 1,
-    bagNo: 'WB-2026-8910',
-    phlebotomist: 'Sister Nalini Rao',
-    donatedAt: '2026-09-29T14:40:00Z',
-    status: 'VERIFIED',
-  },
-];
-
 export const AdminDonationsPage = () => {
-  const [donations, setDonations] = useState(FALLBACK_DONATIONS);
+  const [donations, setDonations] = useState([]);
   const [loading, setLoading] = useState(false);
 
   // Confirm Dialog State
@@ -111,11 +53,20 @@ export const AdminDonationsPage = () => {
     try {
       const res = await adminAPI.getDonations();
       const data = res.data?.data || res.data?.donations || res.data;
-      if (Array.isArray(data) && data.length > 0) {
-        setDonations(data);
+      if (Array.isArray(data)) {
+        setDonations(
+          data.map((d) => ({
+            ...d,
+            donorName: getDonorName(d),
+            donorPhone: getDonorPhone(d),
+          }))
+        );
+      } else {
+        setDonations([]);
       }
-    } catch {
-      // Retain fallback data
+    } catch (err) {
+      setDonations([]);
+      toast.error(err.response?.data?.message || 'Failed to load donations.');
     } finally {
       setLoading(false);
     }
@@ -139,11 +90,8 @@ export const AdminDonationsPage = () => {
             prev.map((d) => (d._id === don._id ? { ...d, status: 'VERIFIED' } : d))
           );
           toast.success(`Donation ${don.bagNo} officially verified! Certificate issued.`);
-        } catch {
-          setDonations((prev) =>
-            prev.map((d) => (d._id === don._id ? { ...d, status: 'VERIFIED' } : d))
-          );
-          toast.success(`Donation ${don.bagNo} verified.`);
+        } catch (err) {
+          toast.error(err.response?.data?.message || 'Failed to verify donation.');
         }
       },
     });

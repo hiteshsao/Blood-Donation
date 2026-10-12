@@ -15,83 +15,8 @@ import toast from 'react-hot-toast';
 import { adminAPI } from '../../services/api';
 import { DataTable, StatusBadge, Button, ConfirmDialog } from '../../components/common';
 
-const FALLBACK_USERS = [
-  {
-    _id: 'usr-001',
-    name: 'Vikram Malhotra',
-    email: 'donor.oneg@test.com',
-    role: 'DONOR',
-    bloodGroup: 'O-',
-    city: 'Mumbai',
-    phone: '+91 98765 43210',
-    status: 'ACTIVE',
-    isVerified: true,
-    createdAt: '2026-06-12T10:30:00Z',
-  },
-  {
-    _id: 'usr-002',
-    name: 'Dr. Ananya Sen',
-    email: 'icu.doctor@apollo.org',
-    role: 'HOSPITAL',
-    bloodGroup: 'B+',
-    city: 'Mumbai',
-    phone: '+91 98765 43211',
-    status: 'ACTIVE',
-    isVerified: true,
-    createdAt: '2026-05-18T14:15:00Z',
-  },
-  {
-    _id: 'usr-003',
-    name: 'RedCross Blood Center',
-    email: 'director@redcrossbank.org',
-    role: 'BLOOD_BANK',
-    bloodGroup: 'O+',
-    city: 'Mumbai',
-    phone: '+91 98765 43212',
-    status: 'ACTIVE',
-    isVerified: true,
-    createdAt: '2026-04-20T09:00:00Z',
-  },
-  {
-    _id: 'usr-004',
-    name: 'Rahul Sharma',
-    email: 'rahul.sharma@example.com',
-    role: 'USER',
-    bloodGroup: 'A+',
-    city: 'Mumbai',
-    phone: '+91 98765 43213',
-    status: 'ACTIVE',
-    isVerified: true,
-    createdAt: '2026-08-01T11:45:00Z',
-  },
-  {
-    _id: 'usr-005',
-    name: 'Sunita Joshi',
-    email: 'sunita.j@unverified.org',
-    role: 'DONOR',
-    bloodGroup: 'AB+',
-    city: 'Pune',
-    phone: '+91 98765 43217',
-    status: 'PENDING',
-    isVerified: false,
-    createdAt: '2026-09-28T16:20:00Z',
-  },
-  {
-    _id: 'usr-006',
-    name: 'Suspicious Account Flag',
-    email: 'bot.scraper@spam.com',
-    role: 'USER',
-    bloodGroup: 'O+',
-    city: 'Delhi',
-    phone: '+91 98765 00000',
-    status: 'BLOCKED',
-    isVerified: false,
-    createdAt: '2026-09-15T08:10:00Z',
-  },
-];
-
 export const AdminUsersPage = () => {
-  const [users, setUsers] = useState(FALLBACK_USERS);
+  const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
 
   // Dialog State
@@ -109,11 +34,14 @@ export const AdminUsersPage = () => {
     try {
       const res = await adminAPI.getUsers();
       const data = res.data?.data || res.data?.users || res.data;
-      if (Array.isArray(data) && data.length > 0) {
+      if (Array.isArray(data)) {
         setUsers(data);
+      } else {
+        setUsers([]);
       }
-    } catch {
-      // Retain fallback data
+    } catch (err) {
+      setUsers([]);
+      toast.error(err.response?.data?.message || 'Failed to load users.');
     } finally {
       setLoading(false);
     }
@@ -138,11 +66,8 @@ export const AdminUsersPage = () => {
             prev.map((u) => (u._id === user._id ? { ...u, isVerified: true, status: 'ACTIVE' } : u))
           );
           toast.success(`User ${user.name} verified successfully.`);
-        } catch {
-          setUsers((prev) =>
-            prev.map((u) => (u._id === user._id ? { ...u, isVerified: true, status: 'ACTIVE' } : u))
-          );
-          toast.success(`User ${user.name} verified.`);
+        } catch (err) {
+          toast.error(err.response?.data?.message || 'Failed to verify user.');
         }
       },
     });
@@ -172,17 +97,10 @@ export const AdminUsersPage = () => {
             setUsers((prev) =>
               prev.map((u) => (u._id === user._id ? { ...u, status: 'BLOCKED' } : u))
             );
-            toast.error(`User ${user.name} has been blocked.`);
+            toast.success(`User ${user.name} has been blocked.`);
           }
-        } catch {
-          setUsers((prev) =>
-            prev.map((u) =>
-              u._id === user._id
-                ? { ...u, status: isCurrentlyBlocked ? 'ACTIVE' : 'BLOCKED' }
-                : u
-            )
-          );
-          toast.success(`Status updated for ${user.name}.`);
+        } catch (err) {
+          toast.error(err.response?.data?.message || (isCurrentlyBlocked ? 'Failed to unblock user.' : 'Failed to block user.'));
         }
       },
     });
@@ -201,9 +119,8 @@ export const AdminUsersPage = () => {
           await adminAPI.deleteUser(user._id);
           setUsers((prev) => prev.filter((u) => u._id !== user._id));
           toast.success(`User ${user.name} deleted.`);
-        } catch {
-          setUsers((prev) => prev.filter((u) => u._id !== user._id));
-          toast.success(`User ${user.name} record removed.`);
+        } catch (err) {
+          toast.error(err.response?.data?.message || 'Failed to delete user.');
         }
       },
     });

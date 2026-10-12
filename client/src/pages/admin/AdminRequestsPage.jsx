@@ -25,63 +25,6 @@ const VALID_TRANSITIONS = {
   CANCELLED: [],
 };
 
-const FALLBACK_ADMIN_REQUESTS = [
-  {
-    _id: 'req-adm-701',
-    patientName: 'Vikrant Deshmukh (UHID-88219)',
-    bloodGroup: 'O-',
-    units: 3,
-    urgency: 'CRITICAL',
-    hospitalName: 'Apollo City Hospital',
-    city: 'Mumbai',
-    status: 'DONOR_ASSIGNED',
-    assignedDonor: {
-      name: 'Aakash Verma',
-      phone: '+91 98765 43210',
-    },
-    createdAt: '2026-10-01T13:45:00Z',
-  },
-  {
-    _id: 'req-adm-702',
-    patientName: 'Meera Kulkarni (UHID-71042)',
-    bloodGroup: 'B+',
-    units: 2,
-    urgency: 'URGENT',
-    hospitalName: 'Civil Hospital Trauma Unit',
-    city: 'Mumbai',
-    status: 'PENDING',
-    assignedDonor: null,
-    createdAt: '2026-10-01T14:10:00Z',
-  },
-  {
-    _id: 'req-adm-703',
-    patientName: 'Kavita Patel (UHID-31290)',
-    bloodGroup: 'AB-',
-    units: 1,
-    urgency: 'URGENT',
-    hospitalName: 'Lilavati Hospital',
-    city: 'Mumbai',
-    status: 'APPROVED',
-    assignedDonor: null,
-    createdAt: '2026-10-01T11:20:00Z',
-  },
-  {
-    _id: 'req-adm-704',
-    patientName: 'Rohan Banerjee (UHID-49910)',
-    bloodGroup: 'A+',
-    units: 1,
-    urgency: 'ROUTINE',
-    hospitalName: 'Apollo City Hospital',
-    city: 'Mumbai',
-    status: 'FULFILLED',
-    assignedDonor: {
-      name: 'Priya Sharma',
-      phone: '+91 98765 43211',
-    },
-    createdAt: '2026-09-30T10:00:00Z',
-  },
-];
-
 const COMPATIBLE_DONORS_MOCK = [
   { id: 'dnr-101', name: 'Vikram Malhotra', bloodGroup: 'O-', phone: '+91 98765 43210', distanceKm: 2.1 },
   { id: 'dnr-102', name: 'Aakash Verma', bloodGroup: 'O+', phone: '+91 98765 43211', distanceKm: 3.4 },
@@ -90,7 +33,7 @@ const COMPATIBLE_DONORS_MOCK = [
 ];
 
 export const AdminRequestsPage = () => {
-  const [requests, setRequests] = useState(FALLBACK_ADMIN_REQUESTS);
+  const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(false);
   const [donorsList, setDonorsList] = useState(COMPATIBLE_DONORS_MOCK);
 
@@ -113,9 +56,12 @@ export const AdminRequestsPage = () => {
       const data = res.data?.data || res.data?.requests || res.data;
       if (Array.isArray(data)) {
         setRequests(data);
+      } else {
+        setRequests([]);
       }
     } catch (err) {
-      console.warn('[AdminRequests] Failed to fetch requests from server:', err);
+      setRequests([]);
+      toast.error(err.response?.data?.message || 'Failed to load requests.');
     } finally {
       setLoading(false);
     }

@@ -3,80 +3,14 @@ import {
   ClipboardList,
   RefreshCw,
   Eye,
-  ShieldAlert,
-  Search,
-  CheckCircle2,
-  Clock,
   Terminal,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { adminAPI } from '../../services/api';
 import { DataTable, StatusBadge, Button, Modal } from '../../components/common';
 
-const FALLBACK_LOGS = [
-  {
-    _id: 'log-001',
-    actor: 'Administrator Chief (admin@lifedrop.org)',
-    action: 'APPROVE_FACILITY',
-    target: 'Apollo City Hospital (MH-MUM-HOSP-2024-991)',
-    ipAddress: '192.168.1.45',
-    status: 'SUCCESS',
-    details: {
-      facilityId: 'fac-201',
-      licenseVerified: true,
-      previousStatus: 'PENDING',
-      newStatus: 'APPROVED',
-      complianceAuditor: 'Admin ID #01',
-    },
-    timestamp: new Date(Date.now() - 1000 * 60 * 18).toISOString(),
-  },
-  {
-    _id: 'log-002',
-    actor: 'Administrator Chief (admin@lifedrop.org)',
-    action: 'OVERRIDE_STOCK',
-    target: 'RedCross Regional Blood Center (Group O-)',
-    ipAddress: '192.168.1.45',
-    status: 'SUCCESS',
-    details: {
-      bankId: 'fac-202',
-      bloodGroup: 'O-',
-      previousUnits: 1,
-      adjustedUnits: 3,
-      reason: 'Physical inventory recount audit / State trauma dispatch',
-    },
-    timestamp: new Date(Date.now() - 1000 * 60 * 55).toISOString(),
-  },
-  {
-    _id: 'log-003',
-    actor: 'System Automation Dispatcher',
-    action: 'EMERGENCY_BROADCAST',
-    target: 'Radius 15km / Donors O-',
-    ipAddress: '127.0.0.1 (Internal Service)',
-    status: 'SUCCESS',
-    details: {
-      alertId: 'emg-live-01',
-      channels: ['IN_APP', 'SOCKET_PUSH', 'SMS'],
-      recipientsCount: 42,
-    },
-    timestamp: new Date(Date.now() - 1000 * 60 * 110).toISOString(),
-  },
-  {
-    _id: 'log-004',
-    actor: 'Administrator Chief (admin@lifedrop.org)',
-    action: 'BLOCK_USER',
-    target: 'Suspicious Account Flag (bot.scraper@spam.com)',
-    ipAddress: '192.168.1.45',
-    status: 'SUCCESS',
-    details: {
-      userId: 'usr-006',
-      reason: 'Automated rapid endpoint scraping detected',
-    },
-    timestamp: new Date(Date.now() - 1000 * 60 * 240).toISOString(),
-  },
-];
-
 export const AdminAuditLogsPage = () => {
-  const [logs, setLogs] = useState(FALLBACK_LOGS);
+  const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [inspectModalOpen, setInspectModalOpen] = useState(false);
   const [selectedLog, setSelectedLog] = useState(null);
@@ -86,11 +20,12 @@ export const AdminAuditLogsPage = () => {
     try {
       const res = await adminAPI.getAuditLogs();
       const data = res.data?.data || res.data?.logs || res.data;
-      if (Array.isArray(data) && data.length > 0) {
+      if (Array.isArray(data)) {
         setLogs(data);
       }
-    } catch {
-      // Retain fallback data
+    } catch (err) {
+      setLogs([]);
+      toast.error(err.response?.data?.message || 'Failed to load data.');
     } finally {
       setLoading(false);
     }

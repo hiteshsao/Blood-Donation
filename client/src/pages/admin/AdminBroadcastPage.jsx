@@ -1,17 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Radio,
   Send,
-  Users,
-  Building2,
   Bell,
   Mail,
   MessageSquare,
   AlertTriangle,
-  CheckCircle2,
-  Sparkles,
-  MapPin,
-  Clock,
   History,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -43,31 +37,6 @@ const BLOOD_GROUPS = [
   { value: 'AB+', label: 'AB+ Positive' },
 ];
 
-const FALLBACK_BROADCAST_HISTORY = [
-  {
-    _id: 'bc-001',
-    title: 'Urgent: O- Red Cell Shortage in South Mumbai',
-    message: 'Trauma centers reporting critical O- deficit. Registered donors within 15km requested to report to Apollo or RedCross.',
-    targetType: 'BLOOD_GROUP',
-    targetValue: 'O-',
-    urgency: 'CRITICAL',
-    channels: ['IN_APP', 'SOCKET_PUSH', 'SMS'],
-    dispatchedCount: 1420,
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 4).toISOString(),
-  },
-  {
-    _id: 'bc-002',
-    title: 'National Voluntary Blood Donation Day Camp',
-    message: 'Join the annual nationwide voluntary donation drive. Multiple mobile blood donation vans stationed across civic parks.',
-    targetType: 'ALL',
-    targetValue: 'Network',
-    urgency: 'ROUTINE',
-    channels: ['IN_APP', 'EMAIL'],
-    dispatchedCount: 14280,
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 48).toISOString(),
-  },
-];
-
 export const AdminBroadcastPage = () => {
   const [targetType, setTargetType] = useState('ALL');
   const [targetRole, setTargetRole] = useState('DONOR');
@@ -85,7 +54,26 @@ export const AdminBroadcastPage = () => {
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
-  const [history, setHistory] = useState(FALLBACK_BROADCAST_HISTORY);
+  const [history, setHistory] = useState([]);
+
+  const fetchHistory = async () => {
+    const fetchFn = adminAPI.getBroadcastHistory || adminAPI.getBroadcasts;
+    if (!fetchFn) return;
+    try {
+      const res = await fetchFn();
+      const data = res.data?.data || res.data?.broadcasts || res.data;
+      if (Array.isArray(data)) {
+        setHistory(data);
+      }
+    } catch (err) {
+      setHistory([]);
+      toast.error(err.response?.data?.message || 'Failed to load data.');
+    }
+  };
+
+  useEffect(() => {
+    fetchHistory();
+  }, []);
 
   const toggleChannel = (key) => {
     setChannels((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -120,37 +108,49 @@ export const AdminBroadcastPage = () => {
         urgency,
       };
 
-      await adminAPI.broadcastNotification(payload);
+      const sendBroadcast = adminAPI.broadcastNotification || adminAPI.broadcast;
+      const res = await sendBroadcast(payload);
 
-      const targetVal =
-        targetType === 'ROLE'
-          ? targetRole
-          : targetType === 'CITY'
-          ? targetCity
-          : targetType === 'BLOOD_GROUP'
-          ? targetBloodGroup
-          : 'All Network';
+      const serverData = res?.data?.data || res?.data;
+      const serverItem =
+        res?.data?.broadcast ||
+        res?.data?.data?.broadcast ||
+        (serverData && (serverData._id || serverData.title || typeof serverData.sentCount === 'number')
+          ? serverData
+          : null);
 
-      const newHistoryEntry = {
-        _id: `bc-${Date.now()}`,
-        title,
-        message,
-        targetType,
-        targetValue: targetVal,
-        urgency,
-        channels: selectedChannelsList,
-        dispatchedCount: targetType === 'ALL' ? 14280 : targetType === 'BLOOD_GROUP' ? 840 : 2100,
-        createdAt: new Date().toISOString(),
-      };
+      if (serverItem) {
+        const targetVal =
+          targetType === 'ROLE'
+            ? targetRole
+            : targetType === 'CITY'
+            ? targetCity
+            : targetType === 'BLOOD_GROUP'
+            ? targetBloodGroup
+            : 'All Network';
 
-      setHistory([newHistoryEntry, ...history]);
+        const newHistoryEntry = {
+          _id: serverItem._id || `bc-${Date.now()}`,
+          title: serverItem.title || title,
+          message: serverItem.message || message,
+          targetType: serverItem.targetType || targetType,
+          targetValue: serverItem.targetValue || serverItem.target || targetVal,
+          urgency: serverItem.urgency || urgency,
+          channels: serverItem.channels || selectedChannelsList,
+          dispatchedCount: serverItem.sentCount ?? serverItem.dispatchedCount ?? 0,
+          createdAt: serverItem.createdAt || new Date().toISOString(),
+        };
+
+        setHistory((prev) => [newHistoryEntry, ...prev]);
+      } else {
+        await fetchHistory();
+      }
+
       toast.success('Live notification broadcast dispatched successfully!');
       setTitle('');
       setMessage('');
-    } catch {
-      toast.success('Live notification broadcast dispatched to selected channel queues!');
-      setTitle('');
-      setMessage('');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Action failed.');
     } finally {
       setIsSending(false);
     }
@@ -361,41 +361,53 @@ export const AdminBroadcastPage = () => {
         </h3>
 
         <div className="divide-y divide-slate-800">
-          {history.map((item) => (
-            <div key={item._id} className="py-4 space-y-1.5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <h4 className="text-sm font-bold text-white">{item.title}</h4>
-                  <span
-                    className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
-                      item.urgency === 'CRITICAL'
-                        ? 'bg-red-950 text-red-400 border border-red-800'
-                        : 'bg-slate-800 text-slate-400'
-                    }`}
-                  >
-                    {item.urgency}
+          {history.length === 0 ? (
+            <div className="py-8 text-center text-slate-500 text-sm font-medium">
+              No records found
+            </div>
+          ) : (
+            history.map((item) => (
+              <div key={item._id} className="py-4 space-y-1.5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-sm font-bold text-white">{item.title}</h4>
+                    <span
+                      className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
+                        item.urgency === 'CRITICAL'
+                          ? 'bg-red-950 text-red-400 border border-red-800'
+                          : 'bg-slate-800 text-slate-400'
+                      }`}
+                    >
+                      {item.urgency}
+                    </span>
+                  </div>
+                  <span className="text-xs text-slate-500">
+                    {new Date(item.createdAt).toLocaleString()}
                   </span>
                 </div>
-                <span className="text-xs text-slate-500">
-                  {new Date(item.createdAt).toLocaleString()}
-                </span>
-              </div>
 
-              <p className="text-xs text-slate-400 leading-relaxed">{item.message}</p>
+                <p className="text-xs text-slate-400 leading-relaxed">{item.message}</p>
 
-              <div className="flex items-center gap-4 text-[11px] text-slate-500 pt-1">
-                <span>
-                  Target: <strong className="text-slate-300">{item.targetValue}</strong>
-                </span>
-                <span>
-                  Reached: <strong className="text-emerald-400">{item.dispatchedCount} Recipients</strong>
-                </span>
-                <span>
-                  Channels: <strong className="text-slate-300">{item.channels.join(', ')}</strong>
-                </span>
+                <div className="flex items-center gap-4 text-[11px] text-slate-500 pt-1">
+                  <span>
+                    Target: <strong className="text-slate-300">{item.targetValue}</strong>
+                  </span>
+                  <span>
+                    Reached:{' '}
+                    <strong className="text-emerald-400">
+                      {item.dispatchedCount} Recipients
+                    </strong>
+                  </span>
+                  <span>
+                    Channels:{' '}
+                    <strong className="text-slate-300">
+                      {Array.isArray(item.channels) ? item.channels.join(', ') : item.channels}
+                    </strong>
+                  </span>
+                </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </div>
     </div>

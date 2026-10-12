@@ -17,77 +17,8 @@ import { DataTable, StatusBadge, Button, Modal, Input, Select } from '../../comp
 
 const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
-const FALLBACK_BANK_INVENTORY = [
-  {
-    _id: 'inv-001',
-    bankName: 'RedCross Regional Blood Center',
-    city: 'Mumbai',
-    bloodGroup: 'O-',
-    availableUnits: 3,
-    reservedUnits: 2,
-    threshold: 8,
-    status: 'CRITICAL',
-    lastUpdated: '10 mins ago',
-  },
-  {
-    _id: 'inv-002',
-    bankName: 'RedCross Regional Blood Center',
-    city: 'Mumbai',
-    bloodGroup: 'O+',
-    availableUnits: 28,
-    reservedUnits: 4,
-    threshold: 12,
-    status: 'ADEQUATE',
-    lastUpdated: 'Today',
-  },
-  {
-    _id: 'inv-003',
-    bankName: 'Apollo Hospital Blood Center',
-    city: 'Mumbai',
-    bloodGroup: 'AB-',
-    availableUnits: 2,
-    reservedUnits: 1,
-    threshold: 5,
-    status: 'CRITICAL',
-    lastUpdated: '1 hour ago',
-  },
-  {
-    _id: 'inv-004',
-    bankName: 'Apollo Hospital Blood Center',
-    city: 'Mumbai',
-    bloodGroup: 'B+',
-    availableUnits: 34,
-    reservedUnits: 6,
-    threshold: 10,
-    status: 'ADEQUATE',
-    lastUpdated: 'Today',
-  },
-  {
-    _id: 'inv-005',
-    bankName: 'Civil Hospital Transfusion Unit',
-    city: 'Mumbai',
-    bloodGroup: 'B-',
-    availableUnits: 4,
-    reservedUnits: 2,
-    threshold: 7,
-    status: 'LOW',
-    lastUpdated: '30 mins ago',
-  },
-  {
-    _id: 'inv-006',
-    bankName: 'Civil Hospital Transfusion Unit',
-    city: 'Mumbai',
-    bloodGroup: 'A+',
-    availableUnits: 22,
-    reservedUnits: 3,
-    threshold: 10,
-    status: 'ADEQUATE',
-    lastUpdated: 'Today',
-  },
-];
-
 export const AdminInventoryPage = () => {
-  const [inventory, setInventory] = useState(FALLBACK_BANK_INVENTORY);
+  const [inventory, setInventory] = useState([]);
   const [loading, setLoading] = useState(false);
   const [filterMode, setFilterMode] = useState('ALL'); // 'ALL' | 'CRITICAL' | 'O-' | 'O+'
 
@@ -131,12 +62,13 @@ export const AdminInventoryPage = () => {
             flatList.push(item);
           }
         });
-        if (flatList.length > 0) {
-          setInventory(flatList);
-        }
+        setInventory(flatList);
+      } else {
+        setInventory([]);
       }
     } catch (err) {
-      console.warn('[AdminInventory] Fetch failed:', err);
+      setInventory([]);
+      toast.error(err.response?.data?.message || 'Failed to load inventory.');
     } finally {
       setLoading(false);
     }

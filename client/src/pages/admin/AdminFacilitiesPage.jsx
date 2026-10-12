@@ -5,88 +5,15 @@ import {
   XCircle,
   Lock,
   RefreshCw,
-  FileText,
   Eye,
-  ShieldCheck,
-  ShieldAlert,
   Droplet,
-  Mail,
-  AlertTriangle,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { adminAPI } from '../../services/api';
 import { DataTable, StatusBadge, Button, ConfirmDialog, Modal, Input } from '../../components/common';
 
-const FALLBACK_FACILITIES = [
-  {
-    _id: 'fac-201',
-    name: 'Apollo City Hospital & Trauma Center',
-    type: 'HOSPITAL',
-    category: 'Tertiary Care',
-    licenseNumber: 'MH-MUM-HOSP-2024-991',
-    licenseDocUrl: '/documents/apollo-license.pdf',
-    city: 'Mumbai',
-    contactPerson: 'Dr. Ananya Sen',
-    email: 'icu.doctor@apollo.org',
-    status: 'APPROVED',
-    createdAt: '2026-05-18T14:15:00Z',
-  },
-  {
-    _id: 'fac-202',
-    name: 'RedCross Regional Blood Center',
-    type: 'BLOOD_BANK',
-    category: 'Regional Central Blood Bank',
-    licenseNumber: 'BB-MUM-777',
-    licenseDocUrl: '/documents/redcross-cert.pdf',
-    city: 'Mumbai',
-    contactPerson: 'Dr. V. K. Sen',
-    email: 'director@redcrossbank.org',
-    status: 'APPROVED',
-    createdAt: '2026-04-20T09:00:00Z',
-  },
-  {
-    _id: 'fac-203',
-    name: 'Metro Trauma Care Hospital',
-    type: 'HOSPITAL',
-    category: 'Emergency Trauma Facility',
-    licenseNumber: 'MH-MUM-2026-PENDING',
-    licenseDocUrl: '/documents/metro-license.pdf',
-    city: 'Mumbai',
-    contactPerson: 'Dr. S. K. Nambiar',
-    email: 'compliance@metrotrauma.org',
-    status: 'PENDING',
-    createdAt: '2026-09-28T11:30:00Z',
-  },
-  {
-    _id: 'fac-204',
-    name: 'Civil Hospital Transfusion Unit',
-    type: 'BLOOD_BANK',
-    category: 'Government Blood Bank',
-    licenseNumber: 'GOV-MUM-104',
-    licenseDocUrl: '/documents/civil-bank.pdf',
-    city: 'Mumbai',
-    contactPerson: 'Sister Nalini Rao',
-    email: 'bloodunit@civilhospital.gov.in',
-    status: 'APPROVED',
-    createdAt: '2026-03-10T10:00:00Z',
-  },
-  {
-    _id: 'fac-205',
-    name: 'Sunrise Community Nursing Home',
-    type: 'HOSPITAL',
-    category: 'Secondary Care Clinic',
-    licenseNumber: 'MH-REG-88210',
-    licenseDocUrl: '/documents/sunrise-doc.pdf',
-    city: 'Navi Mumbai',
-    contactPerson: 'Dr. P. Deshpande',
-    email: 'admin@sunriseclinic.com',
-    status: 'REJECTED',
-    createdAt: '2026-09-02T15:20:00Z',
-  },
-];
-
 export const AdminFacilitiesPage = () => {
-  const [facilities, setFacilities] = useState(FALLBACK_FACILITIES);
+  const [facilities, setFacilities] = useState([]);
   const [activeTab, setActiveTab] = useState('ALL'); // 'ALL' | 'HOSPITAL' | 'BLOOD_BANK' | 'PENDING'
   const [loading, setLoading] = useState(false);
 
@@ -113,19 +40,21 @@ export const AdminFacilitiesPage = () => {
         adminAPI.getBloodBanks(),
       ]);
 
-      const hospData = hospRes.status === 'fulfilled' ? hospRes.value.data?.data || [] : [];
-      const bankData = bankRes.status === 'fulfilled' ? bankRes.value.data?.data || [] : [];
+      if (hospRes.status === 'rejected') throw hospRes.reason;
+      if (bankRes.status === 'rejected') throw bankRes.reason;
+
+      const hospData = hospRes.value.data?.data || hospRes.value.data || [];
+      const bankData = bankRes.value.data?.data || bankRes.value.data || [];
 
       const combined = [
-        ...hospData.map((h) => ({ ...h, type: 'HOSPITAL' })),
-        ...bankData.map((b) => ({ ...b, type: 'BLOOD_BANK' })),
+        ...(Array.isArray(hospData) ? hospData : []).map((h) => ({ ...h, type: 'HOSPITAL' })),
+        ...(Array.isArray(bankData) ? bankData : []).map((b) => ({ ...b, type: 'BLOOD_BANK' })),
       ];
 
-      if (combined.length > 0) {
-        setFacilities(combined);
-      }
-    } catch {
-      // Retain fallback data
+      setFacilities(combined);
+    } catch (err) {
+      setFacilities([]);
+      toast.error(err.response?.data?.message || 'Failed to load data.');
     } finally {
       setLoading(false);
     }
@@ -152,11 +81,8 @@ export const AdminFacilitiesPage = () => {
             prev.map((f) => (f._id === fac._id ? { ...f, status: 'APPROVED' } : f))
           );
           toast.success(`Facility ${fac.name} approved. Confirmation email dispatched.`);
-        } catch {
-          setFacilities((prev) =>
-            prev.map((f) => (f._id === fac._id ? { ...f, status: 'APPROVED' } : f))
-          );
-          toast.success(`Facility ${fac.name} approved.`);
+        } catch (err) {
+          toast.error(err.response?.data?.message || 'Action failed.');
         }
       },
     });
@@ -182,14 +108,10 @@ export const AdminFacilitiesPage = () => {
       setFacilities((prev) =>
         prev.map((f) => (f._id === selectedFacilityToReject._id ? { ...f, status: 'REJECTED' } : f))
       );
-      toast.error(`Facility application rejected. Rejection notice sent to applicant.`);
+      toast.success(`Facility application rejected. Rejection notice sent to applicant.`);
       setRejectModalOpen(false);
-    } catch {
-      setFacilities((prev) =>
-        prev.map((f) => (f._id === selectedFacilityToReject._id ? { ...f, status: 'REJECTED' } : f))
-      );
-      toast.error(`Facility marked as rejected.`);
-      setRejectModalOpen(false);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Action failed.');
     }
   };
 
@@ -219,15 +141,10 @@ export const AdminFacilitiesPage = () => {
             setFacilities((prev) =>
               prev.map((f) => (f._id === fac._id ? { ...f, status: 'BLOCKED' } : f))
             );
-            toast.error(`Facility ${fac.name} has been blocked.`);
+            toast.success(`Facility ${fac.name} has been blocked.`);
           }
-        } catch {
-          setFacilities((prev) =>
-            prev.map((f) =>
-              f._id === fac._id ? { ...f, status: isBlocked ? 'APPROVED' : 'BLOCKED' } : f
-            )
-          );
-          toast.success(`Status updated for ${fac.name}.`);
+        } catch (err) {
+          toast.error(err.response?.data?.message || 'Action failed.');
         }
       },
     });

@@ -23,42 +23,9 @@ import {
   Modal,
 } from '../components/common';
 
-const FALLBACK_HISTORY = [
-  {
-    _id: 'don-001',
-    certificateId: 'CERT-2026-MUM-8921',
-    bloodGroup: 'O-',
-    units: 1,
-    bloodBank: { name: 'Central RedCross Blood Center', city: 'Mumbai' },
-    donatedAt: '2026-06-15T10:30:00.000Z',
-    verificationStatus: 'VERIFIED',
-    remarks: 'Voluntary whole blood donation. Hemoglobin: 14.2 g/dL. Medical clearance verified.',
-  },
-  {
-    _id: 'don-002',
-    certificateId: 'CERT-2026-MUM-4120',
-    bloodGroup: 'O-',
-    units: 1,
-    bloodBank: { name: 'Apollo Transfusion Center', city: 'Mumbai' },
-    donatedAt: '2026-03-01T14:15:00.000Z',
-    verificationStatus: 'VERIFIED',
-    remarks: 'Emergency blood replenishment drive.',
-  },
-  {
-    _id: 'don-003',
-    certificateId: 'CERT-2025-MUM-9914',
-    bloodGroup: 'O-',
-    units: 1,
-    bloodBank: { name: 'Civil Hospital Blood Center', city: 'Mumbai' },
-    donatedAt: '2025-11-20T11:00:00.000Z',
-    verificationStatus: 'VERIFIED',
-    remarks: 'Regular voluntary donor contribution.',
-  },
-];
-
 export const DonorHistoryPage = () => {
   const { user } = useAuth();
-  const [history, setHistory] = useState(FALLBACK_HISTORY);
+  const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedCert, setSelectedCert] = useState(null);
 
@@ -68,11 +35,14 @@ export const DonorHistoryPage = () => {
       try {
         const res = await donorAPI.getHistory();
         const data = res.data?.data || res.data?.history || res.data;
-        if (Array.isArray(data) && data.length > 0) {
+        if (Array.isArray(data)) {
           setHistory(data);
+        } else {
+          setHistory([]);
         }
-      } catch {
-        // Fallback demo
+      } catch (err) {
+        setHistory([]);
+        toast.error(err.response?.data?.message || 'Failed to load donation history.');
       } finally {
         setLoading(false);
       }

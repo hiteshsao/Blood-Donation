@@ -39,32 +39,6 @@ const DEFAULT_SLOTS = [
   '04:00 PM - 05:00 PM',
 ];
 
-const FALLBACK_BANKS = [
-  { _id: 'bb-101', name: 'Central RedCross Blood Center', city: 'Mumbai', address: '45 Bandra West' },
-  { _id: 'bb-102', name: 'Apollo Transfusion Center', city: 'Mumbai', address: '123 Marine Drive' },
-  { _id: 'bb-103', name: 'Civil Hospital Blood Bank', city: 'Mumbai', address: 'Central Medical Complex' },
-];
-
-const FALLBACK_APPOINTMENTS = [
-  {
-    _id: 'apt-501',
-    bloodBank: { _id: 'bb-101', name: 'Central RedCross Blood Center', city: 'Mumbai', address: '45 Bandra West' },
-    slotDate: '2026-10-08',
-    slotTime: '10:00 AM - 11:00 AM',
-    status: 'BOOKED',
-    notes: 'Voluntary quarterly blood donation',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    _id: 'apt-502',
-    bloodBank: { _id: 'bb-102', name: 'Apollo Transfusion Center', city: 'Mumbai', address: '123 Marine Drive' },
-    slotDate: '2026-07-01',
-    slotTime: '02:00 PM - 03:00 PM',
-    status: 'COMPLETED',
-    notes: 'Donation completed successfully (Certificate Issued)',
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 90).toISOString(),
-  },
-];
 
 export const formatAddress = (addr, fallbackCity = '') => {
   if (!addr) return fallbackCity;
@@ -82,8 +56,8 @@ const DonorAppointmentsView = () => {
     searchParams.get('book') ? 'book' : 'my'
   ); // 'my' | 'book'
 
-  const [appointments, setAppointments] = useState(FALLBACK_APPOINTMENTS);
-  const [banks, setBanks] = useState(FALLBACK_BANKS);
+  const [appointments, setAppointments] = useState([]);
+  const [banks, setBanks] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isBooking, setIsBooking] = useState(false);
 
@@ -117,9 +91,12 @@ const DonorAppointmentsView = () => {
       const data = res.data?.appointments || res.data?.data || res.data;
       if (Array.isArray(data)) {
         setAppointments(data);
+      } else {
+        setAppointments([]);
       }
-    } catch {
-      // Keep fallbacks
+    } catch (err) {
+      setAppointments([]);
+      toast.error(err.response?.data?.message || 'Could not load appointments.');
     } finally {
       setLoading(false);
     }
@@ -131,12 +108,21 @@ const DonorAppointmentsView = () => {
       try {
         const res = await searchAPI.getBloodBanks();
         const data = res.data?.bloodBanks || res.data?.data || res.data;
-        if (Array.isArray(data) && data.length > 0) {
+        if (Array.isArray(data)) {
           setBanks(data);
-          setSelectedBankId((prev) => (prev && /^[0-9a-fA-F]{24}$/.test(prev) ? prev : data[0]._id));
+          if (data.length > 0) {
+            setSelectedBankId((prev) => (prev && /^[0-9a-fA-F]{24}$/.test(prev) ? prev : data[0]._id));
+          } else {
+            setSelectedBankId('');
+          }
+        } else {
+          setBanks([]);
+          setSelectedBankId('');
         }
-      } catch {
-        // Keep fallbacks
+      } catch (err) {
+        setBanks([]);
+        setSelectedBankId('');
+        toast.error(err.response?.data?.message || 'Could not load blood banks.');
       }
     };
     fetchBanks();
@@ -520,10 +506,11 @@ const DonorAppointmentsView = () => {
                 type="submit"
                 variant="primary"
                 size="md"
+                disabled={banks.length === 0}
                 isLoading={isBooking}
                 rightIcon={<ArrowRight className="w-4 h-4" />}
               >
-                Confirm Booking
+                {banks.length === 0 ? 'No blood banks available' : 'Confirm Booking'}
               </Button>
             </div>
           </form>

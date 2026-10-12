@@ -56,107 +56,6 @@ const EMPTY_INVENTORY = BLOOD_GROUPS.map((group) => ({
   batches: [],
 }));
 
-const INITIAL_APPOINTMENTS = [
-  {
-    _id: 'apt-bb-901',
-    donorName: 'Aakash Verma',
-    donorPhone: '+91 98765 43210',
-    bloodGroup: 'O-',
-    slotDate: new Date().toISOString().split('T')[0],
-    slotTime: '10:00 AM - 11:00 AM',
-    status: 'CONFIRMED',
-    isFirstTime: false,
-    weightKg: 68,
-  },
-  {
-    _id: 'apt-bb-902',
-    donorName: 'Priya Sharma',
-    donorPhone: '+91 98765 43211',
-    bloodGroup: 'A+',
-    slotDate: new Date().toISOString().split('T')[0],
-    slotTime: '11:30 AM - 12:30 PM',
-    status: 'CONFIRMED',
-    isFirstTime: true,
-    weightKg: 54,
-  },
-  {
-    _id: 'apt-bb-903',
-    donorName: 'Sameer Kothari',
-    donorPhone: '+91 98765 43218',
-    bloodGroup: 'B+',
-    slotDate: new Date().toISOString().split('T')[0],
-    slotTime: '02:00 PM - 03:00 PM',
-    status: 'COMPLETED',
-    isFirstTime: false,
-    weightKg: 72,
-    bagNo: 'WB-2026-9031',
-  },
-  {
-    _id: 'apt-bb-904',
-    donorName: 'Neha Deshmukh',
-    donorPhone: '+91 98765 43219',
-    bloodGroup: 'O+',
-    slotDate: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString().split('T')[0],
-    slotTime: '03:30 PM - 04:30 PM',
-    status: 'NO_SHOW',
-    isFirstTime: false,
-    weightKg: 58,
-  },
-];
-
-const INITIAL_HISTORY = [
-  {
-    _id: 'hist-001',
-    type: 'DONATION',
-    bloodGroup: 'B+',
-    units: 1,
-    bagNo: 'WB-2026-9031',
-    entityName: 'Sameer Kothari (Voluntary Donor)',
-    phlebotomist: 'Sister Nalini Rao',
-    timestamp: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
-    status: 'STORED',
-    fridgeId: 'REF-02 (Shelf B)',
-  },
-  {
-    _id: 'hist-002',
-    type: 'ISSUE',
-    bloodGroup: 'O-',
-    units: 2,
-    bagNo: 'PRBC-2026-8812, 8813',
-    entityName: 'Apollo City Hospital (Emergency Trauma OT)',
-    issuedTo: 'Courier R. Pawar (Emp #410)',
-    phlebotomist: 'Dr. V. K. Sen',
-    timestamp: new Date(Date.now() - 1000 * 60 * 300).toISOString(),
-    status: 'DISPATCHED',
-    fridgeId: 'Cold-Box #7',
-  },
-  {
-    _id: 'hist-003',
-    type: 'DONATION',
-    bloodGroup: 'O+',
-    units: 1,
-    bagNo: 'WB-2026-9029',
-    entityName: 'Manish Gupta (Replacement Donor)',
-    phlebotomist: 'Sister Nalini Rao',
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
-    status: 'STORED',
-    fridgeId: 'REF-01 (Shelf A)',
-  },
-  {
-    _id: 'hist-004',
-    type: 'ISSUE',
-    bloodGroup: 'A+',
-    units: 1,
-    bagNo: 'WB-2026-0041',
-    entityName: 'Lilavati Hospital (Orthopedic Elective OT)',
-    issuedTo: 'Transfusion Tech S. More',
-    phlebotomist: 'Dr. V. K. Sen',
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 36).toISOString(),
-    status: 'FULFILLED',
-    fridgeId: 'Dispatched',
-  },
-];
-
 export const BloodBankDashboardPage = () => {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -230,7 +129,7 @@ export const BloodBankDashboardPage = () => {
   }, [fetchInventory]);
 
   // Appointments State
-  const [appointments, setAppointments] = useState(INITIAL_APPOINTMENTS);
+  const [appointments, setAppointments] = useState([]);
   const [loadingAppointments, setLoadingAppointments] = useState(false);
   const [aptFilter, setAptFilter] = useState('ALL');
   const [completeModalOpen, setCompleteModalOpen] = useState(false);
@@ -250,7 +149,7 @@ export const BloodBankDashboardPage = () => {
     try {
       const res = await appointmentAPI.getBankAppointments();
       const list = res.data?.appointments || res.data?.data || res.data;
-      if (Array.isArray(list) && list.length > 0) {
+      if (Array.isArray(list)) {
         const formatted = list.map((item) => ({
           _id: item._id,
           donorName: item.donor?.name || 'Voluntary Donor',
@@ -264,9 +163,12 @@ export const BloodBankDashboardPage = () => {
           notes: item.notes || '',
         }));
         setAppointments(formatted);
+      } else {
+        setAppointments([]);
       }
     } catch (err) {
-      console.warn('[BloodBank] Live appointments fetch failed, keeping fallback:', err.message);
+      setAppointments([]);
+      toast.error(err.response?.data?.message || 'Could not load appointments.');
     } finally {
       setLoadingAppointments(false);
     }
@@ -337,7 +239,7 @@ export const BloodBankDashboardPage = () => {
   const [isIssuingUnits, setIsIssuingUnits] = useState(false);
 
   // History State
-  const [history, setHistory] = useState(INITIAL_HISTORY);
+  const [history, setHistory] = useState([]);
   const [historyTypeFilter, setHistoryTypeFilter] = useState('ALL');
   const [historySearch, setHistorySearch] = useState('');
 
@@ -635,14 +537,8 @@ export const BloodBankDashboardPage = () => {
       );
       await Promise.all([fetchInventory(), fetchAppointments()]);
       setCompleteModalOpen(false);
-    } catch {
-      toast.success('Appointment completed and donation logged.');
-      setAppointments((prev) =>
-        prev.map((a) =>
-          a._id === selectedAptToComplete._id ? { ...a, status: 'COMPLETED' } : a
-        )
-      );
-      setCompleteModalOpen(false);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to complete appointment.');
     } finally {
       setIsCompletingApt(false);
     }
@@ -657,11 +553,8 @@ export const BloodBankDashboardPage = () => {
       );
       toast.success('Donor appointment marked as NO-SHOW.');
       await fetchAppointments();
-    } catch {
-      setAppointments((prev) =>
-        prev.map((a) => (a._id === aptId ? { ...a, status: 'NO_SHOW' } : a))
-      );
-      toast.success('Marked appointment as NO-SHOW.');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to mark no-show.');
     }
   };
 
@@ -1562,65 +1455,72 @@ export const BloodBankDashboardPage = () => {
           </div>
 
           {/* Ledger Table */}
-          <div className="overflow-x-auto rounded-2xl border border-slate-200">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead className="bg-[#FFF8F8] text-slate-700 font-black uppercase text-[10px] tracking-wider border-b border-red-100">
-                <tr>
-                  <th className="p-3.5">Activity</th>
-                  <th className="p-3.5">Group & Units</th>
-                  <th className="p-3.5">Bag Barcode</th>
-                  <th className="p-3.5">Entity / Hospital</th>
-                  <th className="p-3.5">Phlebotomist / Tech</th>
-                  <th className="p-3.5">Storage Location</th>
-                  <th className="p-3.5">Timestamp</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredHistory.map((item) => (
-                  <tr key={item._id} className="hover:bg-slate-50 transition-colors">
-                    <td className="p-3.5">
-                      <span
-                        className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-black uppercase ${
-                          item.type === 'DONATION'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-blue-100 text-blue-800'
-                        }`}
-                      >
-                        {item.type}
-                      </span>
-                    </td>
-
-                    <td className="p-3.5 font-bold text-slate-900">
-                      {item.bloodGroup} ({item.units} U)
-                    </td>
-
-                    <td className="p-3.5 font-mono text-slate-700">
-                      {item.bagNo}
-                    </td>
-
-                    <td className="p-3.5 font-medium text-slate-800">
-                      {item.entityName}
-                    </td>
-
-                    <td className="p-3.5 text-slate-500">
-                      {item.phlebotomist}
-                    </td>
-
-                    <td className="p-3.5 text-slate-500">
-                      {item.fridgeId}
-                    </td>
-
-                    <td className="p-3.5 text-slate-400">
-                      {new Date(item.timestamp).toLocaleString([], {
-                        dateStyle: 'short',
-                        timeStyle: 'short',
-                      })}
-                    </td>
+          {filteredHistory.length === 0 ? (
+            <EmptyState
+              title="No Ledger Records Found"
+              description="No donation collections or hospital issue dispatches recorded in this session yet."
+            />
+          ) : (
+            <div className="overflow-x-auto rounded-2xl border border-slate-200">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead className="bg-[#FFF8F8] text-slate-700 font-black uppercase text-[10px] tracking-wider border-b border-red-100">
+                  <tr>
+                    <th className="p-3.5">Activity</th>
+                    <th className="p-3.5">Group & Units</th>
+                    <th className="p-3.5">Bag Barcode</th>
+                    <th className="p-3.5">Entity / Hospital</th>
+                    <th className="p-3.5">Phlebotomist / Tech</th>
+                    <th className="p-3.5">Storage Location</th>
+                    <th className="p-3.5">Timestamp</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredHistory.map((item) => (
+                    <tr key={item._id} className="hover:bg-slate-50 transition-colors">
+                      <td className="p-3.5">
+                        <span
+                          className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-black uppercase ${
+                            item.type === 'DONATION'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-blue-100 text-blue-800'
+                          }`}
+                        >
+                          {item.type}
+                        </span>
+                      </td>
+
+                      <td className="p-3.5 font-bold text-slate-900">
+                        {item.bloodGroup} ({item.units} U)
+                      </td>
+
+                      <td className="p-3.5 font-mono text-slate-700">
+                        {item.bagNo}
+                      </td>
+
+                      <td className="p-3.5 font-medium text-slate-800">
+                        {item.entityName}
+                      </td>
+
+                      <td className="p-3.5 text-slate-500">
+                        {item.phlebotomist}
+                      </td>
+
+                      <td className="p-3.5 text-slate-500">
+                        {item.fridgeId}
+                      </td>
+
+                      <td className="p-3.5 text-slate-400">
+                        {new Date(item.timestamp).toLocaleString([], {
+                          dateStyle: 'short',
+                          timeStyle: 'short',
+                        })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 

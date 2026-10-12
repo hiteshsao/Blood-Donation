@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
 import { searchAPI } from '../services/api';
 import {
   Search,
@@ -17,59 +18,8 @@ import toast from 'react-hot-toast';
 
 const BLOOD_GROUPS = ['ALL', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
-const SAMPLE_FALLBACK_DONORS = [
-  {
-    _id: 'd-1',
-    user: { name: 'Aakash Verma', city: 'Raigarh', phone: '+91 98765 *****' },
-    bloodGroup: 'O+',
-    isAvailable: true,
-    isVerified: true,
-    distanceKm: 1.4,
-  },
-  {
-    _id: 'd-2',
-    user: { name: 'Rohit Agrawal', city: 'Raigarh', phone: '+91 98234 *****' },
-    bloodGroup: 'O-',
-    isAvailable: true,
-    isVerified: true,
-    distanceKm: 2.1,
-    universal: true,
-  },
-  {
-    _id: 'd-3',
-    user: { name: 'Meena Dewangan', city: 'Raigarh', phone: '+91 97543 *****' },
-    bloodGroup: 'A+',
-    isAvailable: true,
-    isVerified: true,
-    distanceKm: 3.5,
-  },
-  {
-    _id: 'd-4',
-    user: { name: 'Karan Singh', city: 'Raigarh', phone: '+91 99123 *****' },
-    bloodGroup: 'B+',
-    isAvailable: true,
-    isVerified: true,
-    distanceKm: 4.2,
-  },
-  {
-    _id: 'd-5',
-    user: { name: 'Pooja Tiwari', city: 'Raigarh', phone: '+91 98987 *****' },
-    bloodGroup: 'AB+',
-    isAvailable: true,
-    isVerified: true,
-    distanceKm: 5.8,
-  },
-  {
-    _id: 'd-6',
-    user: { name: 'Vikram Joshi', city: 'Raigarh', phone: '+91 98456 *****' },
-    bloodGroup: 'O+',
-    isAvailable: false,
-    isVerified: true,
-    distanceKm: 6.3,
-  },
-];
-
 export const SearchDonorsPage = ({ onOpenRequest, selectedCity = 'Raigarh, Chhattisgarh' }) => {
+  const { user } = useAuth();
   const [bloodGroup, setBloodGroup] = useState('ALL');
   const [city, setCity] = useState((selectedCity || 'Raigarh, Chhattisgarh').split(',')[0]);
   const [radiusKm, setRadiusKm] = useState(25);
@@ -79,33 +29,24 @@ export const SearchDonorsPage = ({ onOpenRequest, selectedCity = 'Raigarh, Chhat
   const fetchDonors = async () => {
     setLoading(true);
     try {
+      const coords = user?.location?.coordinates || user?.address?.location?.coordinates;
       const params = {
         city: city || undefined,
         bloodGroup: bloodGroup !== 'ALL' ? bloodGroup : undefined,
         radiusKm,
-        lat: 21.8974,
-        lng: 83.395,
       };
-      const res = await searchAPI.getDonors(params);
-      if (res.data?.success && res.data?.donors?.length > 0) {
-        setDonors(res.data.donors);
-      } else {
-        // Fallback to sample data matching filters
-        applyFallback(bloodGroup, city);
+      if (Array.isArray(coords) && coords.length >= 2 && coords[0] != null && coords[1] != null) {
+        params.lng = coords[0];
+        params.lat = coords[1];
       }
+      const res = await searchAPI.getDonors(params);
+      setDonors(res.data?.donors || []);
     } catch (err) {
-      applyFallback(bloodGroup, city);
+      setDonors([]);
+      toast.error(err.response?.data?.message || 'Failed to search donors.');
     } finally {
       setLoading(false);
     }
-  };
-
-  const applyFallback = (bg, c) => {
-    let filtered = SAMPLE_FALLBACK_DONORS;
-    if (bg && bg !== 'ALL') {
-      filtered = filtered.filter((d) => d.bloodGroup === bg);
-    }
-    setDonors(filtered);
   };
 
   useEffect(() => {

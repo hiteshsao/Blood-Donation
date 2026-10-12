@@ -57,10 +57,16 @@ export const ProfilePage = () => {
   // Address State
   const [addressData, setAddressData] = useState({
     line: user?.address?.line || '',
-    city: user?.address?.city || user?.city || 'Mumbai',
-    state: user?.address?.state || 'Maharashtra',
-    pincode: user?.address?.pincode || '400001',
-    coordinates: user?.location?.coordinates || [72.8777, 19.076],
+    city: user?.address?.city || user?.city || '',
+    state: user?.address?.state || '',
+    pincode: user?.address?.pincode || '',
+    coordinates:
+      Array.isArray(user?.location?.coordinates) &&
+      user.location.coordinates.length === 2 &&
+      Number.isFinite(user.location.coordinates[0]) &&
+      Number.isFinite(user.location.coordinates[1])
+        ? user.location.coordinates
+        : null,
   });
 
   // Donor State
@@ -92,10 +98,16 @@ export const ProfilePage = () => {
 
       setAddressData({
         line: user.address?.line || '',
-        city: user.address?.city || user.city || 'Mumbai',
-        state: user.address?.state || 'Maharashtra',
-        pincode: user.address?.pincode || '400001',
-        coordinates: user.location?.coordinates || [72.8777, 19.076],
+        city: user.address?.city || user.city || '',
+        state: user.address?.state || '',
+        pincode: user.address?.pincode || '',
+        coordinates:
+          Array.isArray(user.location?.coordinates) &&
+          user.location.coordinates.length === 2 &&
+          Number.isFinite(user.location.coordinates[0]) &&
+          Number.isFinite(user.location.coordinates[1])
+            ? user.location.coordinates
+            : null,
       });
 
       setIsDonor(user.role === 'DONOR' || user.isDonor || false);
@@ -169,33 +181,55 @@ export const ProfilePage = () => {
   // Update Address
   const handleSaveAddress = async (e) => {
     e?.preventDefault();
+
+    const cityTrimmed = addressData.city?.trim() || '';
+    if (!cityTrimmed) {
+      toast.error('City is required.');
+      return;
+    }
+
+    const pincodeTrimmed = addressData.pincode ? String(addressData.pincode).trim() : '';
+    if (pincodeTrimmed && !/^\d{6}$/.test(pincodeTrimmed)) {
+      toast.error('Pincode must be exactly 6 digits.');
+      return;
+    }
+
     setSavingAddress(true);
     try {
+      const hasValidCoords =
+        Array.isArray(addressData.coordinates) &&
+        addressData.coordinates.length === 2 &&
+        Number.isFinite(addressData.coordinates[0]) &&
+        Number.isFinite(addressData.coordinates[1]);
+
       const payload = {
         address: {
-          line: addressData.line,
-          city: addressData.city,
-          state: addressData.state,
-          pincode: addressData.pincode,
+          line: addressData.line?.trim() || '',
+          city: cityTrimmed,
+          state: addressData.state?.trim() || '',
+          pincode: pincodeTrimmed,
         },
-        city: addressData.city,
-        state: addressData.state,
-        pincode: addressData.pincode,
-        location: {
-          type: 'Point',
-          coordinates: addressData.coordinates,
-          lat: addressData.coordinates[1],
-          lng: addressData.coordinates[0],
-        },
+        city: cityTrimmed,
+        state: addressData.state?.trim() || '',
+        pincode: pincodeTrimmed,
       };
+
+      if (hasValidCoords) {
+        payload.location = {
+          type: 'Point',
+          coordinates: [Number(addressData.coordinates[0]), Number(addressData.coordinates[1])],
+          lat: Number(addressData.coordinates[1]),
+          lng: Number(addressData.coordinates[0]),
+        };
+      }
 
       await profileAPI.updateAddress(payload);
       updateUser({
         address: payload.address,
-        city: addressData.city,
-        location: payload.location,
+        city: cityTrimmed,
+        ...(hasValidCoords ? { location: payload.location } : {}),
       });
-      toast.success('Address and coordinates updated!');
+      toast.success(hasValidCoords ? 'Address and coordinates updated!' : 'Address updated successfully!');
     } catch (err) {
       toast.error(err.response?.data?.message || err.message || 'Failed to update address.');
     } finally {
@@ -205,8 +239,13 @@ export const ProfilePage = () => {
 
   // "Use My Location" HTML5 Geolocation
   const handleUseMyLocation = () => {
+    if (typeof window !== 'undefined' && window.isSecureContext === false) {
+      toast.error('Location needs HTTPS on this device.');
+      return;
+    }
+
     if (!navigator.geolocation) {
-      toast.error('Geolocation is not supported by your browser.');
+      toast.error('Could not get your location. Allow location access or enter your city manually.');
       return;
     }
 
@@ -224,9 +263,9 @@ export const ProfilePage = () => {
         toast.success(`Coordinates captured: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
         setLocating(false);
       },
-      (err) => {
+      () => {
         setLocating(false);
-        toast.error(`Location detection failed: ${err.message}. Using default city coordinates.`);
+        toast.error('Could not get your location. Allow location access or enter your city manually.');
       },
       { timeout: 10000, enableHighAccuracy: true }
     );
@@ -291,7 +330,7 @@ export const ProfilePage = () => {
               <span className="text-xs text-slate-400 font-bold">•</span>
               <span className="text-xs font-bold text-slate-600 flex items-center gap-1">
                 <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                {addressData.city}
+                {addressData.city || 'Location not set'}
               </span>
             </div>
           </div>
@@ -521,6 +560,7 @@ export const ProfilePage = () => {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <Input
                 label="City"
+                placeholder="Mumbai"
                 value={addressData.city}
                 onChange={(e) => setAddressData({ ...addressData, city: e.target.value })}
                 required
@@ -528,16 +568,16 @@ export const ProfilePage = () => {
 
               <Input
                 label="State"
+                placeholder="Maharashtra"
                 value={addressData.state}
                 onChange={(e) => setAddressData({ ...addressData, state: e.target.value })}
-                required
               />
 
               <Input
                 label="Pincode"
+                placeholder="400001"
                 value={addressData.pincode}
                 onChange={(e) => setAddressData({ ...addressData, pincode: e.target.value })}
-                required
               />
             </div>
 
@@ -545,14 +585,32 @@ export const ProfilePage = () => {
             <div className="p-4 rounded-2xl bg-red-50/40 border border-red-100 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-700">Geospatial Coordinates</span>
-                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3" />
-                  GeoJSON 2dsphere Ready
-                </span>
+                {Array.isArray(addressData.coordinates) &&
+                addressData.coordinates.length === 2 &&
+                Number.isFinite(addressData.coordinates[0]) &&
+                Number.isFinite(addressData.coordinates[1]) ? (
+                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" />
+                    GeoJSON 2dsphere Ready
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                    Not Set
+                  </span>
+                )}
               </div>
-              <p className="text-xs text-slate-500 font-mono">
-                Longitude: {addressData.coordinates[0]} | Latitude: {addressData.coordinates[1]}
-              </p>
+              {Array.isArray(addressData.coordinates) &&
+              addressData.coordinates.length === 2 &&
+              Number.isFinite(addressData.coordinates[0]) &&
+              Number.isFinite(addressData.coordinates[1]) ? (
+                <p className="text-xs text-slate-500 font-mono">
+                  Longitude: {addressData.coordinates[0]} | Latitude: {addressData.coordinates[1]}
+                </p>
+              ) : (
+                <p className="text-xs text-amber-700 font-medium">
+                  Location not set. Tap 'Use my location' to receive nearby requests.
+                </p>
+              )}
               <p className="text-[11px] text-slate-400">
                 Used to compute nearest proximity during trauma emergency dispatches.
               </p>

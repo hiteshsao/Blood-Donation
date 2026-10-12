@@ -31,35 +31,10 @@ const CATEGORIES = [
   { value: 'OTHER', label: 'General Feedback or Suggestion' },
 ];
 
-const FALLBACK_FEEDBACKS = [
-  {
-    _id: 'fb-701',
-    type: 'FEEDBACK',
-    category: 'DONATION_EXPERIENCE',
-    subject: 'Seamless whole blood donation at Bandra Center',
-    message: 'The phlebotomist was very courteous and the clinical procedure took under 15 minutes. Very hygienic environment.',
-    rating: 5,
-    status: 'RESOLVED',
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 72).toISOString(),
-    adminReply: 'Thank you for your voluntary commitment! We have relayed your appreciation to the Bandra RedCross clinical supervisor.',
-  },
-  {
-    _id: 'fb-702',
-    type: 'COMPLAINT',
-    category: 'HOSPITAL',
-    subject: 'Minor delay in blood request confirmation',
-    message: 'Hospital took approximately 45 minutes to acknowledge cross-match readiness.',
-    rating: 3,
-    status: 'IN_PROGRESS',
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 18).toISOString(),
-    adminReply: 'Our hospital relationship manager has contacted the facility director to streamline emergency triage response times.',
-  },
-];
-
 export const FeedbackPage = () => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('my'); // 'my' | 'create'
-  const [feedbacks, setFeedbacks] = useState(FALLBACK_FEEDBACKS);
+  const [feedbacks, setFeedbacks] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -77,11 +52,13 @@ export const FeedbackPage = () => {
     try {
       const res = await feedbackAPI.getMy();
       const data = res.data?.data || res.data?.feedbacks || res.data;
-      if (Array.isArray(data) && data.length > 0) {
+      if (Array.isArray(data)) {
         setFeedbacks(data);
+      } else {
+        setFeedbacks([]);
       }
     } catch {
-      // Keep fallback
+      setFeedbacks([]);
     } finally {
       setLoading(false);
     }

@@ -68,64 +68,6 @@ const isEmergencyRequest = (req) => {
   return String(urgency || '').toUpperCase() === 'EMERGENCY' || Boolean(isEmgField);
 };
 
-const FALLBACK_MY_REQUESTS = [
-  {
-    _id: 'req-201',
-    patientName: 'Karan Mehra',
-    bloodGroup: 'B+',
-    units: 2,
-    urgency: 'URGENT',
-    hospitalName: 'Apollo Hospital',
-    city: 'Mumbai',
-    status: 'DONOR_ASSIGNED',
-    createdAt: new Date(Date.now() - 1000 * 60 * 180).toISOString(),
-    requiredBy: new Date(Date.now() + 1000 * 60 * 60 * 12).toISOString(),
-    statusHistory: [
-      { status: 'PENDING', timestamp: new Date(Date.now() - 1000 * 60 * 180).toISOString(), note: 'Request initiated' },
-      { status: 'APPROVED', timestamp: new Date(Date.now() - 1000 * 60 * 90).toISOString(), note: 'Medical approval confirmed' },
-      { status: 'DONOR_ASSIGNED', timestamp: new Date(Date.now() - 1000 * 60 * 20).toISOString(), note: 'Matched with donor Vikram Malhotra' },
-    ],
-  },
-  {
-    _id: 'req-202',
-    patientName: 'Sunita Patil',
-    bloodGroup: 'O-',
-    units: 1,
-    urgency: 'CRITICAL',
-    hospitalName: 'Civil Trauma Center',
-    city: 'Mumbai',
-    status: 'FULFILLED',
-    confirmedReceived: true,
-    confirmedAt: new Date(Date.now() - 1000 * 60 * 60 * 10).toISOString(),
-    receivedAt: new Date(Date.now() - 1000 * 60 * 60 * 10).toISOString(),
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 48).toISOString(),
-    statusHistory: [
-      { status: 'PENDING', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 48).toISOString() },
-      { status: 'APPROVED', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 40).toISOString() },
-      { status: 'DONOR_ASSIGNED', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 30).toISOString() },
-      { status: 'IN_PROGRESS', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 20).toISOString() },
-      { status: 'FULFILLED', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 10).toISOString(), note: 'Blood bank issued units' },
-      { status: 'RECEIVED', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 10).toISOString(), note: 'Hospital confirmed receipt' },
-    ],
-  },
-  {
-    _id: 'req-203',
-    patientName: 'Aarav Sharma',
-    bloodGroup: 'AB+',
-    units: 1,
-    urgency: 'EMERGENCY',
-    hospitalName: 'Lilavati Trauma Hospital',
-    city: 'Mumbai',
-    status: 'FULFILLED',
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
-    statusHistory: [
-      { status: 'PENDING', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(), note: 'Emergency request broadcast' },
-      { status: 'DONOR_ASSIGNED', timestamp: new Date(Date.now() - 1000 * 60 * 45).toISOString(), note: 'Donor accepted your request' },
-      { status: 'FULFILLED', timestamp: new Date(Date.now() - 1000 * 60 * 15).toISOString(), note: 'Donor donation confirmed' },
-    ],
-  },
-];
-
 export const BloodRequestsPage = () => {
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
@@ -134,7 +76,7 @@ export const BloodRequestsPage = () => {
     searchParams.get('create') ? 'create' : 'my'
   ); // 'my' | 'create'
 
-  const [myRequests, setMyRequests] = useState(FALLBACK_MY_REQUESTS);
+  const [myRequests, setMyRequests] = useState([]);
   const [hospitals, setHospitals] = useState([]);
   const [loadingHospitals, setLoadingHospitals] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -186,9 +128,12 @@ export const BloodRequestsPage = () => {
       const data = res.data?.requests || res.data?.data || res.data;
       if (Array.isArray(data)) {
         setMyRequests(data);
+      } else {
+        setMyRequests([]);
       }
-    } catch {
-      // Keep fallbacks
+    } catch (err) {
+      setMyRequests([]);
+      toast.error(err.response?.data?.message || err.message || 'Failed to load blood requests.');
     } finally {
       setLoading(false);
     }

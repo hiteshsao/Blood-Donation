@@ -7,42 +7,12 @@ import { useSocket } from './SocketContext';
 
 const NotificationContext = createContext(null);
 
-const INITIAL_DEMO_NOTIFICATIONS = [
-  {
-    _id: 'notif-demo-01',
-    id: 'notif-demo-01',
-    title: 'Emergency Blood Need: O-',
-    message: 'Apollo Critical Care Unit requested 2 units of O- Negative blood in Mumbai.',
-    type: 'EMERGENCY',
-    isRead: false,
-    createdAt: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
-  },
-  {
-    _id: 'notif-demo-02',
-    id: 'notif-demo-02',
-    title: 'Donation Certificate Ready',
-    message: 'Your certificate for the voluntary donation drive is now available for download.',
-    type: 'CERTIFICATE',
-    isRead: false,
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 3).toISOString(),
-  },
-  {
-    _id: 'notif-demo-03',
-    id: 'notif-demo-03',
-    title: 'Welcome to LifeDrop Transfusion Network',
-    message: 'Your profile has been authenticated. Thank you for standing ready to save lives.',
-    type: 'INFO',
-    isRead: true,
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
-  },
-];
-
 export const NotificationProvider = ({ children }) => {
   const { isAuthenticated, token } = useAuth();
   const { socket, on, off } = useSocket();
   const navigate = useNavigate();
 
-  const [notifications, setNotifications] = useState(INITIAL_DEMO_NOTIFICATIONS);
+  const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(false);
 
   // Track emergency IDs that have already triggered a toast to prevent duplicate alerts
@@ -114,7 +84,7 @@ export const NotificationProvider = ({ children }) => {
         });
       }
     } catch {
-      // Keep existing demo notifications if endpoint fails
+      // Endpoint error
     } finally {
       setLoading(false);
     }
@@ -124,7 +94,7 @@ export const NotificationProvider = ({ children }) => {
     if (isAuthenticated) {
       fetchNotifications();
     } else {
-      setNotifications(INITIAL_DEMO_NOTIFICATIONS);
+      setNotifications([]);
     }
   }, [isAuthenticated, fetchNotifications]);
 

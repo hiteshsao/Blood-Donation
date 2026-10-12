@@ -74,138 +74,6 @@ const BLOOD_GROUPS = [
   { value: 'O-', label: 'O- (Negative)' },
 ];
 
-const FALLBACK_DONORS = [
-  {
-    _id: 'd-cg-101',
-    user: {
-      name: 'Aman Dewangan',
-      city: 'Raipur',
-      state: 'Chhattisgarh',
-      pincode: '492001',
-    },
-    bloodGroup: 'O+',
-    isAvailable: true,
-    isVerified: true,
-    distanceKm: 2.1,
-    totalDonations: 7,
-    city: 'Raipur',
-    state: 'Chhattisgarh',
-    pincode: '492001',
-    latitude: 21.2514,
-    longitude: 81.6296,
-    hasLiveLocation: true,
-    mapUrl: 'https://www.google.com/maps?q=21.2514,81.6296',
-    locationUpdatedAt: new Date(Date.now() - 15 * 60000).toISOString(),
-    shareLocation: true,
-  },
-  {
-    _id: 'd-cg-102',
-    user: {
-      name: 'Pooja Chandrakar',
-      city: 'Bhilai',
-      state: 'Chhattisgarh',
-      pincode: '490006',
-    },
-    bloodGroup: 'O-',
-    isAvailable: true,
-    isVerified: true,
-    distanceKm: 3.4,
-    universal: true,
-    totalDonations: 9,
-    city: 'Bhilai',
-    state: 'Chhattisgarh',
-    pincode: '490006',
-    latitude: 21.1938,
-    longitude: 81.3509,
-    hasLiveLocation: true,
-    mapUrl: 'https://www.google.com/maps?q=21.1938,81.3509',
-    locationUpdatedAt: new Date(Date.now() - 45 * 60000).toISOString(),
-    shareLocation: true,
-  },
-  {
-    _id: 'd-cg-103',
-    user: {
-      name: 'Rupesh Sahu',
-      city: 'Bilaspur',
-      state: 'Chhattisgarh',
-      pincode: '495001',
-    },
-    bloodGroup: 'A+',
-    isAvailable: true,
-    isVerified: true,
-    distanceKm: 4.8,
-    totalDonations: 5,
-    city: 'Bilaspur',
-    state: 'Chhattisgarh',
-    pincode: '495001',
-    latitude: 22.0797,
-    longitude: 82.1409,
-    hasLiveLocation: true,
-    mapUrl: 'https://www.google.com/maps?q=22.0797,82.1409',
-    locationUpdatedAt: new Date(Date.now() - 120 * 60000).toISOString(),
-    shareLocation: true,
-  },
-  {
-    _id: 'd-cg-104',
-    user: {
-      name: 'Kavita Patel',
-      city: 'Raigarh',
-      state: 'Chhattisgarh',
-      pincode: '496001',
-    },
-    bloodGroup: 'B+',
-    isAvailable: true,
-    isVerified: true,
-    distanceKm: 6.2,
-    totalDonations: 4,
-    city: 'Raigarh',
-    state: 'Chhattisgarh',
-    pincode: '496001',
-    latitude: 21.8974,
-    longitude: 83.3950,
-    hasLiveLocation: true,
-    mapUrl: 'https://www.google.com/maps?q=21.8974,83.3950',
-    locationUpdatedAt: new Date(Date.now() - 180 * 60000).toISOString(),
-    shareLocation: true,
-  },
-];
-
-const FALLBACK_BANKS = [
-  {
-    _id: 'bb-cg-101',
-    name: 'Dr. B.R. Ambedkar Memorial Hospital Blood Center',
-    city: 'Raipur',
-    state: 'Chhattisgarh',
-    pincode: '492001',
-    phone: '+91 771 2884000',
-    address: 'Jail Road, Mowa, Raipur, Chhattisgarh',
-    licenseNumber: 'CG-RPR-001',
-    availableUnits: 38,
-  },
-  {
-    _id: 'bb-cg-102',
-    name: 'Raigarh District Blood Center',
-    city: 'Raigarh',
-    state: 'Chhattisgarh',
-    pincode: '496001',
-    phone: '+91 7762 222100',
-    address: 'Near District Hospital, Raigarh, Chhattisgarh',
-    licenseNumber: 'CG-RGH-004',
-    availableUnits: 24,
-  },
-  {
-    _id: 'bb-cg-103',
-    name: 'CIMS Regional Blood Bank',
-    city: 'Bilaspur',
-    state: 'Chhattisgarh',
-    pincode: '495001',
-    phone: '+91 7752 224200',
-    address: 'Sardar Vallabhbhai Patel Hospital Campus, Bilaspur, Chhattisgarh',
-    licenseNumber: 'CG-BIL-002',
-    availableUnits: 31,
-  },
-];
-
 export const FindBloodPage = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -216,8 +84,8 @@ export const FindBloodPage = () => {
   const [pincodeError, setPincodeError] = useState('');
   const [radiusKm, setRadiusKm] = useState(25);
 
-  const [donors, setDonors] = useState(FALLBACK_DONORS);
-  const [bloodBanks, setBloodBanks] = useState(FALLBACK_BANKS);
+  const [donors, setDonors] = useState([]);
+  const [bloodBanks, setBloodBanks] = useState([]);
   const [loading, setLoading] = useState(false);
 
   // Hospital registry state for linking requests
@@ -427,21 +295,10 @@ export const FindBloodPage = () => {
         };
         const res = await searchAPI.getDonors(params);
         const data = res.data?.data || res.data?.donors || res.data;
-        if (Array.isArray(data) && data.length > 0) {
+        if (Array.isArray(data)) {
           setDonors(data);
         } else {
-          // If 0 returned, apply client filter on fallback for smooth presentation
-          const filtered = FALLBACK_DONORS.filter((d) => {
-            const matchBg = !bloodGroup || d.bloodGroup === bloodGroup;
-            const matchCity =
-              !city ||
-              (d.city && d.city.toLowerCase().includes(city.toLowerCase())) ||
-              (d.user?.city && d.user.city.toLowerCase().includes(city.toLowerCase()));
-            const matchPin =
-              !pincode || (d.pincode && d.pincode.startsWith(pincode.trim()));
-            return matchBg && matchCity && matchPin;
-          });
-          setDonors(filtered);
+          setDonors([]);
         }
       } else {
         const params = {
@@ -451,28 +308,19 @@ export const FindBloodPage = () => {
         };
         const res = await searchAPI.getBloodBanks(params);
         const data = res.data?.data || res.data?.bloodBanks || res.data;
-        if (Array.isArray(data) && data.length > 0) {
+        if (Array.isArray(data)) {
           setBloodBanks(data);
         } else {
-          const filtered = FALLBACK_BANKS.filter((b) => {
-            return !city || b.city.toLowerCase().includes(city.toLowerCase());
-          });
-          setBloodBanks(filtered);
+          setBloodBanks([]);
         }
       }
-    } catch {
-      // Local fallback
-      const filtered = FALLBACK_DONORS.filter((d) => {
-        const matchBg = !bloodGroup || d.bloodGroup === bloodGroup;
-        const matchCity =
-          !city ||
-          (d.city && d.city.toLowerCase().includes(city.toLowerCase())) ||
-          (d.user?.city && d.user.city.toLowerCase().includes(city.toLowerCase()));
-        const matchPin =
-          !pincode || (d.pincode && d.pincode.startsWith(pincode.trim()));
-        return matchBg && matchCity && matchPin;
-      });
-      setDonors(filtered);
+    } catch (err) {
+      if (activeTab === 'donors') {
+        setDonors([]);
+      } else {
+        setBloodBanks([]);
+      }
+      toast.error(err.response?.data?.message || err.message || 'Failed to search blood records');
     } finally {
       setLoading(false);
     }

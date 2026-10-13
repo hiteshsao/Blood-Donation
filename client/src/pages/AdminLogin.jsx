@@ -6,26 +6,19 @@ import {
   ArrowRight,
   Droplet,
   ExternalLink,
-  Sparkles,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { Button, Input } from '../components/common';
+import { Button } from '../components/common';
 import { useAuth } from '../context/AuthContext';
 
 export const AdminLogin = () => {
   const navigate = useNavigate();
-  const { login, loginAsDemo } = useAuth();
+  const { login } = useAuth();
 
   const [email, setEmail] = useState('admin@lifedrop.org');
   const [password, setPassword] = useState('Password@123');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
-
-  const handleDemoAdmin = () => {
-    loginAsDemo('admin');
-    toast.success('Elevated to Administrator Session');
-    navigate('/admin', { replace: true });
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -83,27 +76,6 @@ export const AdminLogin = () => {
           <p className="text-xs text-slate-400 font-medium">
             Restricted entrance for certified hospital supervisors, regional blood coordinators, and system administrators.
           </p>
-        </div>
-
-        {/* 1-Click Demo Admin Button */}
-        <div className="mb-6 p-4 rounded-2xl bg-slate-900/80 border border-red-900/40">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold text-red-400 flex items-center gap-1.5 uppercase tracking-wide">
-              <Sparkles className="w-3.5 h-3.5" />
-              Evaluation Mode
-            </span>
-            <span className="text-[10px] text-slate-500 font-semibold">1-Click Elevate</span>
-          </div>
-
-          <Button
-            variant="secondary"
-            size="sm"
-            fullWidth
-            onClick={handleDemoAdmin}
-            className="bg-red-950/50 hover:bg-red-900/60 text-red-300 border-red-800/60"
-          >
-            Login as Chief Administrator
-          </Button>
         </div>
 
         {error && (

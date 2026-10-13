@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import toast from 'react-hot-toast';
 import api, {
   getStoredAccessToken,
   saveStoredTokens,
@@ -125,6 +126,14 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(() => getStoredAccessToken());
   const [loading, setLoading] = useState(true);
 
+  // Track session expiration toast flag & user login state
+  const sessionExpiredRef = useRef(false);
+  const userRef = useRef(user);
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+
   // Stable donorProfile setter with JSON equality check
   const setDonorProfileStable = useCallback((newProfile) => {
     setDonorProfile((prev) => {
@@ -143,6 +152,10 @@ export const AuthProvider = ({ children }) => {
 
   // Sync user state to localStorage
   const saveUserSession = useCallback((userData, tokenData, donorProfileData) => {
+    userRef.current = userData;
+    if (userData) {
+      sessionExpiredRef.current = false;
+    }
     setUser(userData);
     if (userData) {
       localStorage.setItem('user', JSON.stringify(userData));
@@ -233,7 +246,19 @@ export const AuthProvider = ({ children }) => {
     fetchCurrentUser();
 
     const handleUnauthorized = () => {
+      const wasLoggedIn = Boolean(userRef.current);
       saveUserSession(null, null, null);
+
+      const isLoginPage =
+        typeof window !== 'undefined' &&
+        (window.location.pathname === '/login' ||
+         window.location.pathname === '/admin/login' ||
+         window.location.pathname.includes('/login'));
+
+      if (wasLoggedIn && !isLoginPage && !sessionExpiredRef.current) {
+        sessionExpiredRef.current = true;
+        toast.error('Session expired. Please login again.');
+      }
     };
 
     window.addEventListener('auth:unauthorized', handleUnauthorized);
@@ -256,6 +281,7 @@ export const AuthProvider = ({ children }) => {
 
       let dp = data.donorProfile || loggedUser.donorProfile || null;
       saveUserSession(loggedUser, { accessToken, refreshToken }, dp);
+      sessionExpiredRef.current = false;
 
       // If donorProfile was not attached directly on login payload, try fetching /auth/me
       if (!dp) {

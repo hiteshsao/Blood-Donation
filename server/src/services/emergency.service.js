@@ -40,6 +40,18 @@ const resolveHospitalName = (em) => {
   return '';
 };
 
+const emitToNotifiedDonors = (emergency, event, payload) => {
+  try {
+    const requesterId = String(emergency.requester);
+    (emergency.notifiedDonors || []).forEach((n) => {
+      const donorId = String(n.donor?._id || n.donor);
+      if (donorId && donorId !== requesterId) emitToUser(donorId, event, payload);
+    });
+  } catch (e) {
+    console.error('[EmergencyService] emitToNotifiedDonors failed:', e.message);
+  }
+};
+
 
 /**
  * Blood group compatibility map:
@@ -794,6 +806,11 @@ export const respondToEmergency = async (emergencyId, userId, responseValue) => 
           acceptedCount,
           units: emergency.units,
         });
+        emitToNotifiedDonors(emergency, 'emergency_fulfilled', {
+          emergencyId: emergency._id,
+          acceptedCount,
+          units: emergency.units,
+        });
       } else {
         // Mark as DONORS_ASSIGNED - do NOT mark FULFILLED until blood is actually donated
         emergency.status = 'DONORS_ASSIGNED';
@@ -824,6 +841,11 @@ export const respondToEmergency = async (emergencyId, userId, responseValue) => 
           units: emergency.units,
         });
         emitToUser(emergency.requester, 'emergency_donors_assigned', {
+          emergencyId: emergency._id,
+          acceptedCount,
+          units: emergency.units,
+        });
+        emitToNotifiedDonors(emergency, 'emergency_donors_assigned', {
           emergencyId: emergency._id,
           acceptedCount,
           units: emergency.units,
@@ -886,6 +908,11 @@ export const respondToEmergency = async (emergencyId, userId, responseValue) => 
           unitsNeeded: emergency.units,
         });
         emitToUser(emergency.requester, 'emergency_reopened', {
+          emergencyId: emergency._id,
+          acceptedCount,
+          unitsNeeded: emergency.units,
+        });
+        emitToNotifiedDonors(emergency, 'emergency_reopened', {
           emergencyId: emergency._id,
           acceptedCount,
           unitsNeeded: emergency.units,
@@ -1210,6 +1237,11 @@ export const confirmEmergencyDonation = async (emergencyId, donorId, currentUser
       units: emergency.units,
     });
     emitToUser(emergency.requester, 'emergency_fulfilled', {
+      emergencyId: emergency._id,
+      donatedCount,
+      units: emergency.units,
+    });
+    emitToNotifiedDonors(emergency, 'emergency_fulfilled', {
       emergencyId: emergency._id,
       donatedCount,
       units: emergency.units,

@@ -215,6 +215,7 @@ export const searchDonors = async ({
           shareLocation: { $ifNull: ['$shareLocation', '$userDetails.shareLocation', true] },
           pincode: { $ifNull: ['$pincode', '$userDetails.pincode', '$userDetails.address.pincode'] },
           state: { $ifNull: ['$state', '$userDetails.state', '$userDetails.address.state', ALLOWED_STATE] },
+          phone: { $ifNull: ['$userDetails.phone', '$userDetails.mobile'] },
           user: {
             _id: '$userDetails._id',
             name: '$userDetails.name',
@@ -271,6 +272,18 @@ export const searchDonors = async ({
           return true;
         })
         .map((d) => {
+          const donorUserId = d.user?._id?.toString() || (typeof d.user === 'string' ? d.user : null);
+          const donorProfileId = d._id?.toString();
+          const hasAcceptedRelationship = Boolean(
+            currentUserId &&
+            ((donorUserId && acceptedDonorUserIds.has(donorUserId)) ||
+             (donorProfileId && acceptedDonorUserIds.has(donorProfileId)))
+          );
+          const donorShareContact = d.shareContact !== false && d.user?.shareContact !== false;
+          const canSeePhone = Boolean(currentUserId) && hasAcceptedRelationship && donorShareContact;
+          const rawPhone = d.user?.phone || d.user?.mobile || '';
+          const resolvedPhone = rawPhone ? (canSeePhone ? rawPhone : maskPhone(rawPhone)) : '';
+
           const coords = d.location?.coordinates || d.user.location?.coordinates || [0, 0];
           const dist = calculateDistanceKm([Number(lng), Number(lat)], coords);
           return {
@@ -288,10 +301,13 @@ export const searchDonors = async ({
             shareLocation: d.shareLocation ?? d.user.shareLocation ?? true,
             pincode: d.pincode || d.user.pincode || d.user.address?.pincode || '',
             state: d.state || d.user.state || d.user.address?.state || ALLOWED_STATE,
+            phone: resolvedPhone,
+            rawPhone,
             user: {
               _id: d.user._id,
               name: d.user.name,
-              phone: d.user.phone || d.user.mobile,
+              phone: resolvedPhone,
+              rawPhone,
               city: d.user.city,
               state: d.user.state || ALLOWED_STATE,
               pincode: d.user.pincode || d.user.address?.pincode || '',
@@ -370,6 +386,7 @@ export const searchDonors = async ({
           shareLocation: { $ifNull: ['$shareLocation', '$userDetails.shareLocation', true] },
           pincode: { $ifNull: ['$pincode', '$userDetails.pincode', '$userDetails.address.pincode'] },
           state: { $ifNull: ['$state', '$userDetails.state', '$userDetails.address.state', ALLOWED_STATE] },
+          phone: { $ifNull: ['$userDetails.phone', '$userDetails.mobile'] },
           user: {
             _id: '$userDetails._id',
             name: '$userDetails.name',
@@ -406,6 +423,24 @@ export const searchDonors = async ({
 
     // Consent flag (default true for backward compatibility)
     const donorShareLocation = donor.shareLocation !== false && donor.user?.shareLocation !== false;
+    const donorShareContact = donor.shareContact !== false && donor.user?.shareContact !== false;
+
+    // Contact Privacy:
+    // Determine canSeePhone per donor: true only if currentUserId is set
+    // AND that user has an accepted relationship with the donor
+    // (use the existing assignedDonors/matchedDonors lookup near line 122; if it does not cover this, treat the user as NOT allowed)
+    // AND the donor's shareContact is not false.
+    const donorUserId = donor.user?._id?.toString() || (typeof donor.user === 'string' ? donor.user : null);
+    const donorProfileId = donor._id?.toString();
+    const hasAcceptedRelationship = Boolean(
+      currentUserId &&
+      ((donorUserId && acceptedDonorUserIds.has(donorUserId)) ||
+       (donorProfileId && acceptedDonorUserIds.has(donorProfileId)))
+    );
+    const canSeePhone = Boolean(currentUserId) && hasAcceptedRelationship && donorShareContact;
+
+    const rawPhone = donor.rawPhone || donor.user?.rawPhone || donor.user?.phone || donor.phone || '';
+    const resolvedPhone = rawPhone ? (canSeePhone ? rawPhone : maskPhone(rawPhone)) : '';
 
     // Live Location Privacy:
     // Only logged-in users can see live lat/lng, AND only if donor consented.
@@ -435,6 +470,9 @@ export const searchDonors = async ({
       nextEligibleDate: donor.nextEligibleDate,
       distanceKm: donor.distanceKm !== undefined ? donor.distanceKm : null,
 
+      // Phone (masked unless requester has accepted relationship and donor consented)
+      phone: resolvedPhone,
+
       // Live location fields
       latitude: lat,
       longitude: lng,
@@ -454,6 +492,7 @@ export const searchDonors = async ({
       user: {
         _id: donor.user?._id,
         name: donor.user?.name,
+        phone: resolvedPhone,
         city: donorCity,
         state: donorState,
         pincode: donorPincode,

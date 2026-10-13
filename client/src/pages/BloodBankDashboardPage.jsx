@@ -243,10 +243,50 @@ export const BloodBankDashboardPage = () => {
   const [historyTypeFilter, setHistoryTypeFilter] = useState('ALL');
   const [historySearch, setHistorySearch] = useState('');
 
+  // Fetch live bank history from database
+  const fetchHistory = useCallback(async () => {
+    try {
+      const res = await bloodBankAPI.getHistory({ type: 'ALL', limit: 50 });
+      const list = res.data?.history || res.data?.data?.history || res.data?.data || res.data;
+      if (Array.isArray(list)) {
+        const mapped = list.map((item) => ({
+          _id: item._id,
+          type: item.type,
+          bloodGroup: item.bloodGroup,
+          units: item.units,
+          bagNo: item.bagNo || '-',
+          entityName: item.donor?.name || item.patientName || '-',
+          phlebotomist: '-',
+          fridgeId: '-',
+          timestamp: item.date,
+        }));
+        setHistory(mapped);
+      } else {
+        setHistory([]);
+      }
+    } catch (err) {
+      setHistory([]);
+      toast.error(err.response?.data?.message || 'Could not load history.');
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchHistory();
+  }, [fetchHistory]);
+
+  useEffect(() => {
+    if (activeTab === 'history') {
+      fetchHistory();
+    }
+  }, [activeTab, fetchHistory]);
+
   // Sync tab with URL
   const handleTabChange = (tab) => {
     setActiveTab(tab);
     setSearchParams({ tab });
+    if (tab === 'history') {
+      fetchHistory();
+    }
   };
 
   // If Account Status is PENDING, show Dedicated Verification Screen
@@ -338,25 +378,10 @@ export const BloodBankDashboardPage = () => {
         )
       );
 
-      // Append to History
-      const newHist = {
-        _id: `hist-${Date.now()}`,
-        type: 'DONATION',
-        bloodGroup: donationForm.bloodGroup,
-        units: Number(donationForm.units),
-        bagNo: bagNumber,
-        entityName: `${donationForm.donorName} (${donationForm.donationType})`,
-        phlebotomist: user?.name || 'Authorized Phlebotomist',
-        timestamp: new Date().toISOString(),
-        status: 'STORED',
-        fridgeId: donationForm.storageFridgeId,
-      };
-      setHistory([newHist, ...history]);
-
       toast.success(
         `Donation recorded! ${donationForm.units} unit of ${donationForm.bloodGroup} added to inventory.`
       );
-      await fetchInventory();
+      await Promise.all([fetchInventory(), fetchHistory()]);
 
       // Reset Form
       setDonationForm({
@@ -445,6 +470,8 @@ export const BloodBankDashboardPage = () => {
       await fetchInventory();
       // Refetch eligible requests
       await fetchEligibleRequests();
+      // Refetch history
+      await fetchHistory();
 
       toast.success(
         res.data?.message || `Successfully issued ${issueForm.units} unit(s) of ${issueForm.bloodGroup}!`
@@ -517,25 +544,10 @@ export const BloodBankDashboardPage = () => {
         )
       );
 
-      // Append to history
-      const newHist = {
-        _id: `hist-${Date.now()}`,
-        type: 'DONATION',
-        bloodGroup: selectedAptToComplete.bloodGroup,
-        units: 1,
-        bagNo: completeForm.bagNo,
-        entityName: `${selectedAptToComplete.donorName} (Scheduled Appointment)`,
-        phlebotomist: user?.name || 'Phlebotomist',
-        timestamp: new Date().toISOString(),
-        status: 'STORED',
-        fridgeId: completeForm.storageFridgeId,
-      };
-      setHistory([newHist, ...history]);
-
       toast.success(
         `Appointment marked COMPLETED. 1 unit of ${selectedAptToComplete.bloodGroup} added to inventory.`
       );
-      await Promise.all([fetchInventory(), fetchAppointments()]);
+      await Promise.all([fetchInventory(), fetchAppointments(), fetchHistory()]);
       setCompleteModalOpen(false);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to complete appointment.');

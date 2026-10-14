@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import api, {
   getStoredAccessToken,
@@ -6,102 +7,10 @@ import api, {
   clearStoredTokens,
 } from '../api/axios';
 
-const AuthContext = createContext(null);
-
-export const DEMO_USERS = {
-  admin: {
-    _id: 'demo-admin-id-01',
-    id: 'demo-admin-id-01',
-    name: 'Administrator Chief',
-    email: 'admin@lifedrop.org',
-    role: 'ADMIN',
-    bloodGroup: 'O+',
-    city: 'Mumbai',
-    phone: '+91 98000 00001',
-    status: 'ACTIVE',
-    isEmailVerified: true,
-    isVerified: true,
-  },
-  donor: {
-    _id: 'demo-donor-id-02',
-    id: 'demo-donor-id-02',
-    name: 'Vikram Malhotra',
-    email: 'donor.oneg@test.com',
-    role: 'DONOR',
-    bloodGroup: 'O-',
-    city: 'Mumbai',
-    phone: '+91 98765 43210',
-    status: 'ACTIVE',
-    isEmailVerified: true,
-    isVerified: true,
-    isDonor: true,
-    donorProfile: {
-      isAvailable: true,
-      isVerified: true,
-      verificationStatus: 'VERIFIED',
-      bloodGroup: 'O-',
-      totalDonations: 8,
-      lastDonationDate: '2026-07-01T00:00:00.000Z',
-    },
-  },
-  hospital: {
-    _id: 'demo-hospital-id-03',
-    id: 'demo-hospital-id-03',
-    name: 'Dr. Ananya Sen',
-    email: 'icu.doctor@test.com',
-    role: 'HOSPITAL',
-    hospitalName: 'Apollo City Hospital',
-    bloodGroup: 'B+',
-    city: 'Mumbai',
-    phone: '+91 98765 43211',
-    status: 'ACTIVE',
-    isEmailVerified: true,
-    isVerified: true,
-  },
-  bloodbank: {
-    _id: 'demo-bank-id-04',
-    id: 'demo-bank-id-04',
-    name: 'RedCross Central Bank',
-    email: 'director@redcrossbank.org',
-    role: 'BLOOD_BANK',
-    bloodBankName: 'RedCross Blood Center',
-    city: 'Mumbai',
-    phone: '+91 98765 43212',
-    status: 'ACTIVE',
-    isEmailVerified: true,
-    isVerified: true,
-  },
-  user: {
-    _id: 'demo-user-id-05',
-    id: 'demo-user-id-05',
-    name: 'Rahul Sharma',
-    email: 'rahul.sharma@example.com',
-    role: 'USER',
-    bloodGroup: 'A+',
-    city: 'Mumbai',
-    phone: '+91 98765 43213',
-    status: 'ACTIVE',
-    isEmailVerified: true,
-    isVerified: true,
-  },
-  pending_facility: {
-    _id: 'demo-pending-id-06',
-    id: 'demo-pending-id-06',
-    name: 'Metro Trauma Care Hospital',
-    email: 'compliance@metrotrauma.org',
-    role: 'HOSPITAL',
-    hospitalName: 'Metro Trauma Care Hospital',
-    licenseNumber: 'MH-MUM-2026-PENDING',
-    city: 'Mumbai',
-    phone: '+91 98000 77777',
-    status: 'PENDING',
-    verificationStatus: 'PENDING',
-    isEmailVerified: true,
-    isVerified: false,
-  },
-};
+export const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
+  const navigate = useNavigate();
   const [user, setUser] = useState(() => {
     try {
       const saved = localStorage.getItem('user') || localStorage.getItem('lifedrop_user');
@@ -195,24 +104,6 @@ export const AuthProvider = ({ children }) => {
       return null;
     }
 
-    // Check if demo token
-    if (currentToken.startsWith('demo_token_')) {
-      const roleKey = currentToken.replace('demo_token_', '');
-      const demoData = DEMO_USERS[roleKey] || DEMO_USERS.user;
-      setUser(demoData);
-      const dp = demoData.donorProfile || null;
-      setDonorProfile(dp);
-      if (dp) {
-        localStorage.setItem('donorProfile', JSON.stringify(dp));
-        localStorage.setItem('lifedrop_donor_profile', JSON.stringify(dp));
-      } else {
-        localStorage.removeItem('donorProfile');
-        localStorage.removeItem('lifedrop_donor_profile');
-      }
-      setLoading(false);
-      return demoData;
-    }
-
     try {
       const res = await api.get('/auth/me');
       const userData = res.data?.user || res.data?.data?.user || res.data?.data;
@@ -232,15 +123,33 @@ export const AuthProvider = ({ children }) => {
         return userData;
       }
     } catch (err) {
-      // If server error or token expired, keep local user if offline, or clear if 401
-      if (err.response?.status === 401) {
+      const status = err.response?.status;
+      const responseData = err.response?.data;
+      const rawMsg =
+        (typeof responseData === 'string'
+          ? responseData
+          : responseData?.message || responseData?.error) || '';
+      const isSuspendedOrBlocked =
+        typeof rawMsg === 'string' && /suspended|blocked/i.test(rawMsg);
+
+      if (status === 403 || isSuspendedOrBlocked) {
+        saveUserSession(null, null, null);
+        toast.error('Your account has been suspended. Contact support.', {
+          id: 'account-suspended',
+        });
+        if (navigate) {
+          navigate('/login');
+        } else if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+          window.location.href = '/login';
+        }
+      } else if (status === 401) {
         saveUserSession(null, null, null);
       }
     } finally {
       setLoading(false);
     }
     return null;
-  }, [saveUserSession]);
+  }, [saveUserSession, navigate]);
 
   useEffect(() => {
     fetchCurrentUser();
@@ -261,9 +170,26 @@ export const AuthProvider = ({ children }) => {
       }
     };
 
+    const handleSuspended = (e) => {
+      e?.preventDefault?.();
+      saveUserSession(null, null, null);
+      toast.error('Your account has been suspended. Contact support.', {
+        id: 'account-suspended',
+      });
+      if (navigate) {
+        navigate('/login');
+      } else if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
+    };
+
     window.addEventListener('auth:unauthorized', handleUnauthorized);
-    return () => window.removeEventListener('auth:unauthorized', handleUnauthorized);
-  }, [fetchCurrentUser, saveUserSession]);
+    window.addEventListener('auth:suspended', handleSuspended);
+    return () => {
+      window.removeEventListener('auth:unauthorized', handleUnauthorized);
+      window.removeEventListener('auth:suspended', handleSuspended);
+    };
+  }, [fetchCurrentUser, saveUserSession, navigate]);
 
   // Standard Login
   const login = async (email, password) => {
@@ -311,14 +237,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Instant 1-Click Demo Login
-  const loginAsDemo = (roleKey = 'donor') => {
-    const demo = DEMO_USERS[roleKey] || DEMO_USERS.donor;
-    const demoToken = `demo_token_${roleKey}`;
-    saveUserSession(demo, { accessToken: demoToken, refreshToken: 'demo_refresh' }, demo.donorProfile || null);
-    return demo;
-  };
-
   // Register
   const register = async (userData) => {
     setLoading(true);
@@ -326,14 +244,9 @@ export const AuthProvider = ({ children }) => {
       const res = await api.post('/auth/register', userData);
       return res.data;
     } catch (err) {
-      if (!err.response) {
-        return {
-          success: true,
-          message: `Verification code sent to ${userData.email}. (Demo Code: 123456)`,
-          demoOtp: '123456',
-        };
-      }
-      throw new Error(err.response?.data?.message || 'Registration failed.');
+      const msg = err.response?.data?.message || err.message || 'Registration failed.';
+      toast.error(msg, { id: msg });
+      throw new Error(msg);
     } finally {
       setLoading(false);
     }
@@ -346,34 +259,17 @@ export const AuthProvider = ({ children }) => {
       const res = await api.post('/auth/verify-otp', { email, otp, type });
       const data = res.data?.data || res.data;
       if (data?.accessToken && data?.user) {
-        saveUserSession(data.user, { accessToken: data.accessToken, refreshToken: data.refreshToken }, data.donorProfile || data.user?.donorProfile || null);
+        saveUserSession(
+          data.user,
+          { accessToken: data.accessToken, refreshToken: data.refreshToken },
+          data.donorProfile || data.user?.donorProfile || null
+        );
       }
       return data;
     } catch (err) {
-      if (!err.response && otp === '123456') {
-        const verifiedUser = {
-          _id: `user-${Date.now()}`,
-          name: email.split('@')[0],
-          email,
-          role: 'DONOR',
-          bloodGroup: 'O+',
-          status: 'ACTIVE',
-          isEmailVerified: true,
-          isVerified: true,
-          donorProfile: {
-            isAvailable: true,
-            isVerified: true,
-            verificationStatus: 'VERIFIED',
-            bloodGroup: 'O+',
-            totalDonations: 0,
-            lastDonationDate: null,
-          },
-        };
-        const demoToken = 'demo_token_donor';
-        saveUserSession(verifiedUser, { accessToken: demoToken, refreshToken: 'demo_refresh' }, verifiedUser.donorProfile);
-        return { success: true, user: verifiedUser, message: 'Account verified successfully!' };
-      }
-      throw new Error(err.response?.data?.message || 'Invalid or expired OTP.');
+      const msg = err.response?.data?.message || err.message || 'Invalid or expired OTP.';
+      toast.error(msg, { id: msg });
+      throw new Error(msg);
     } finally {
       setLoading(false);
     }
@@ -385,10 +281,9 @@ export const AuthProvider = ({ children }) => {
       const res = await api.post('/auth/forgot-password', { email });
       return res.data;
     } catch (err) {
-      if (!err.response) {
-        return { success: true, message: 'Password reset code sent. (Demo OTP: 123456)' };
-      }
-      throw new Error(err.response?.data?.message || 'Failed to process forgot password request.');
+      const msg = err.response?.data?.message || err.message || 'Failed to process forgot password request.';
+      toast.error(msg, { id: msg });
+      throw new Error(msg);
     }
   };
 
@@ -398,10 +293,9 @@ export const AuthProvider = ({ children }) => {
       const res = await api.post('/auth/reset-password', { email, otp, newPassword });
       return res.data;
     } catch (err) {
-      if (!err.response && otp === '123456') {
-        return { success: true, message: 'Password reset successfully!' };
-      }
-      throw new Error(err.response?.data?.message || 'Failed to reset password.');
+      const msg = err.response?.data?.message || err.message || 'Failed to reset password.';
+      toast.error(msg, { id: msg });
+      throw new Error(msg);
     }
   };
 
@@ -450,7 +344,6 @@ export const AuthProvider = ({ children }) => {
       donorProfile,
       setDonorProfile: setDonorProfileStable,
       login,
-      loginAsDemo,
       register,
       verifyOtp,
       forgotPassword,

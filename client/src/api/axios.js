@@ -84,6 +84,7 @@ export const clearStoredTokens = () => {
     localStorage.removeItem(k)
   );
   ['user', 'lifedrop_user', 'bloodlink_user'].forEach((k) => localStorage.removeItem(k));
+  ['donorProfile', 'lifedrop_donor_profile'].forEach((k) => localStorage.removeItem(k));
 };
 
 // Request Interceptor: Attach Access Token
@@ -98,11 +99,43 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response Interceptor: Auto-refresh on 401 and replay queued requests
+// Response Interceptor: Auto-refresh on 401, handle suspended 403, and replay queued requests
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+
+    // Handle 403: Account Suspension / Block (Do NOT logout on normal role-forbidden 403)
+    if (error.response?.status === 403) {
+      const url = originalRequest?.url || '';
+      const method = (originalRequest?.method || 'get').toLowerCase();
+      const isGetAuthMe = method === 'get' && /(^|\/)auth\/me(\?|$)/.test(url);
+
+      const responseData = error.response?.data;
+      const rawMsg =
+        (typeof responseData === 'string'
+          ? responseData
+          : responseData?.message || responseData?.error) || '';
+      const isSuspendedOrBlocked =
+        typeof rawMsg === 'string' && /suspended|blocked/i.test(rawMsg);
+
+      if (isGetAuthMe || isSuspendedOrBlocked) {
+        clearStoredTokens();
+        const event = new CustomEvent('auth:suspended', {
+          cancelable: true,
+          detail: {
+            message: 'Your account has been suspended. Contact support.',
+          },
+        });
+        window.dispatchEvent(event);
+        if (!event.defaultPrevented && typeof window !== 'undefined') {
+          if (window.location.pathname !== '/login') {
+            window.location.href = '/login';
+          }
+        }
+        return Promise.reject(error);
+      }
+    }
 
     // Avoid loops on login, register, or refresh endpoints
     const isAuthEndpoint =

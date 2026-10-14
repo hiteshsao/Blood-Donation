@@ -41,7 +41,7 @@ export const ResetPassword = () => {
       toast.success('Password updated successfully! Please sign in with your new password.');
       navigate('/login');
     } catch (err) {
-      toast.error(err.message || 'Failed to reset password. (Demo OTP: 123456)');
+      toast.error(err.message || 'Failed to reset password.');
     } finally {
       setIsSubmitting(false);
     }
@@ -76,9 +76,9 @@ export const ResetPassword = () => {
           />
 
           <Input
-            label="6-Digit Recovery Code (Demo: 123456)"
+            label="6-Digit Recovery Code"
             type="text"
-            placeholder="123456"
+            placeholder="Enter 6-digit code"
             required
             value={otp}
             onChange={(e) => setOtp(e.target.value)}

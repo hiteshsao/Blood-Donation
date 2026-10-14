@@ -4,6 +4,7 @@ import { KeyRound, CheckCircle2, RotateCcw, ArrowRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Button } from '../components/common';
 import { useAuth } from '../context/AuthContext';
+import { authAPI } from '../services/api';
 
 export const VerifyOtp = () => {
   const navigate = useNavigate();
@@ -13,6 +14,7 @@ export const VerifyOtp = () => {
   const emailParam = searchParams.get('email') || user?.email || 'user@example.com';
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [isResending, setIsResending] = useState(false);
   const [resendTimer, setResendTimer] = useState(60);
 
   const inputRefs = useRef([]);
@@ -74,14 +76,24 @@ export const VerifyOtp = () => {
       toast.success('Identity verified successfully! Welcome to LifeDrop.');
       navigate(role === 'ADMIN' ? '/admin' : '/dashboard');
     } catch (err) {
-      toast.error(err.message || 'Verification failed. Try entering 123456 in demo mode.');
+      toast.error(err.message || 'Verification failed.');
     } finally {
       setIsVerifying(false);
     }
   };
 
-  const fillDemoCode = () => {
-    setOtp(['1', '2', '3', '4', '5', '6']);
+  const handleResendCode = async () => {
+    if (isResending || resendTimer > 0) return;
+    setIsResending(true);
+    try {
+      await authAPI.resendOtp({ email: emailParam });
+      setResendTimer(60);
+      toast.success('Code sent');
+    } catch (err) {
+      toast.error(err.response?.data?.message || err.message || 'Failed to resend code');
+    } finally {
+      setIsResending(false);
+    }
   };
 
   return (
@@ -100,18 +112,6 @@ export const VerifyOtp = () => {
           We sent a 6-digit one-time code to{' '}
           <strong className="text-slate-800">{emailParam}</strong>
         </p>
-
-        {/* Demo Hint Banner */}
-        <div className="mt-4 p-3 rounded-2xl bg-amber-50/70 border border-amber-200 text-amber-800 text-xs flex items-center justify-between">
-          <span className="font-bold">🧪 Testing OTP: 123456</span>
-          <button
-            type="button"
-            onClick={fillDemoCode}
-            className="text-[11px] font-black uppercase text-[#C62828] hover:underline"
-          >
-            Auto Fill
-          </button>
-        </div>
 
         {/* 6 OTP Input Boxes */}
         <form onSubmit={handleVerify} className="mt-8 space-y-6">
@@ -149,11 +149,12 @@ export const VerifyOtp = () => {
             ) : (
               <button
                 type="button"
-                onClick={() => setResendTimer(60)}
-                className="text-[#C62828] font-bold hover:underline flex items-center gap-1"
+                onClick={handleResendCode}
+                disabled={isResending}
+                className="text-[#C62828] font-bold hover:underline flex items-center gap-1 disabled:opacity-50"
               >
-                <RotateCcw className="w-3.5 h-3.5" />
-                Resend Code
+                <RotateCcw className={`w-3.5 h-3.5 ${isResending ? 'animate-spin' : ''}`} />
+                {isResending ? 'Sending...' : 'Resend Code'}
               </button>
             )}
           </div>

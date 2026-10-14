@@ -9,11 +9,10 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Button } from '../components/common';
-import { useAuth } from '../context/AuthContext';
+import { authAPI } from '../services/api';
 
 export const AdminLogin = () => {
   const navigate = useNavigate();
-  const { login } = useAuth();
 
   const [email, setEmail] = useState('admin@lifedrop.org');
   const [password, setPassword] = useState('Password@123');
@@ -31,15 +30,67 @@ export const AdminLogin = () => {
     setError('');
 
     try {
-      const res = await login(email, password);
-      if (res.user?.role !== 'ADMIN') {
-        throw new Error('Access denied. This portal requires an ADMIN role.');
+      const res = await authAPI.adminLogin({ email, password });
+      const data = res.data?.data || res.data;
+      const user = data?.user;
+      const accessToken = data?.accessToken;
+      const refreshToken = data?.refreshToken;
+
+      // Stricter check: only ADMIN role is permitted
+      if (!user || user.role !== 'ADMIN') {
+        throw new Error('Not an admin account');
       }
+
+      // Save tokens and user in localStorage ONLY when role is confirmed ADMIN
+      if (accessToken) {
+        localStorage.setItem('accessToken', accessToken);
+        localStorage.setItem('lifedrop_access_token', accessToken);
+        localStorage.setItem('bloodlink_access_token', accessToken);
+        localStorage.setItem('token', accessToken);
+      }
+
+      if (refreshToken) {
+        localStorage.setItem('refreshToken', refreshToken);
+        localStorage.setItem('lifedrop_refresh_token', refreshToken);
+        localStorage.setItem('bloodlink_refresh_token', refreshToken);
+      }
+
+      localStorage.setItem('user', JSON.stringify(user));
+      localStorage.setItem('lifedrop_user', JSON.stringify(user));
+
       toast.success('Administrator Access Granted');
       navigate('/admin', { replace: true });
+      if (typeof window !== 'undefined' && window.location) {
+        window.location.href = '/admin';
+      }
     } catch (err) {
-      setError(err.message || 'Authentication failed. Please verify credentials.');
-      toast.error(err.message || 'Admin authentication failed.');
+      // Ensure no tokens remain in localStorage on error or non-admin login
+      ['accessToken', 'lifedrop_access_token', 'bloodlink_access_token', 'token'].forEach((k) =>
+        localStorage.removeItem(k)
+      );
+      ['refreshToken', 'lifedrop_refresh_token', 'bloodlink_refresh_token'].forEach((k) =>
+        localStorage.removeItem(k)
+      );
+      ['user', 'lifedrop_user'].forEach((k) => localStorage.removeItem(k));
+
+      const status = err.response?.status;
+      const serverMsg = err.response?.data?.message || err.message || '';
+
+      let errorMsg = 'Not an admin account';
+      if (
+        status === 403 ||
+        err.message === 'Not an admin account' ||
+        /not an admin|reserved for system administrators|access denied/i.test(serverMsg)
+      ) {
+        errorMsg = 'Not an admin account';
+      } else if (status === 401) {
+        errorMsg = serverMsg || 'Invalid administrative credentials.';
+      } else if (serverMsg) {
+        errorMsg = serverMsg;
+      }
+
+      setError(errorMsg);
+      toast.error(errorMsg);
     } finally {
       setIsSubmitting(false);
     }

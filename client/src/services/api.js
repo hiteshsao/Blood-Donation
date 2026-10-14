@@ -111,11 +111,14 @@ api.interceptors.response.use(
 // ── 1. AUTH API ──
 export const authAPI = {
   login: (credentials) => api.post('/v1/auth/login', credentials),
+  adminLogin: (credentials) => api.post('/v1/auth/admin/login', credentials),
   register: (userData) => api.post('/v1/auth/register', userData),
   verifyOtp: (payload) => api.post('/v1/auth/verify-otp', payload),
   resendOtp: (payload) => api.post('/v1/auth/resend-otp', payload),
   logout: () => api.post('/v1/auth/logout'),
 };
+
+export const adminLogin = (credentials) => api.post('/v1/auth/admin/login', credentials);
 
 // ── 2. USER PROFILE API (/api/v1/profile) ──
 export const profileAPI = {

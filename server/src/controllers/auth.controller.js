@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-import { User, DonorProfile, Hospital, BloodBank } from '../models/index.js';
+import { User, DonorProfile, Hospital, BloodBank, AuditLog } from '../models/index.js';
 import { sendOtpToUser, verifyOtp } from '../services/otp.service.js';
 import { auditLog } from '../services/auditLog.service.js';
 
@@ -71,6 +71,14 @@ export const register = async (req, res, next) => {
     const userPhone = phone || mobile;
     const userRole = ['USER', 'DONOR', 'HOSPITAL', 'BLOOD_BANK', 'ADMIN'].includes(role) ? role : 'USER';
     const isFacility = userRole === 'HOSPITAL' || userRole === 'BLOOD_BANK';
+
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+    if (!password || !passwordRegex.test(password)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 8 characters with uppercase, lowercase and a number.',
+      });
+    }
 
     const existingUser = await User.findOne({ email: email.toLowerCase() }).select('+verificationOtp +isVerified +status');
 
@@ -373,23 +381,67 @@ export const login = async (req, res, next) => {
       });
     }
 
-    // Block pending facility accounts until verified by admin
-    if ((user.role === 'HOSPITAL' || user.role === 'BLOOD_BANK') && user.status === 'PENDING') {
-      return res.status(403).json({
-        success: false,
-        message: 'Your organization account is pending administrator verification. Please check back later.',
-        isPendingApproval: true,
-      });
+    // Facility accounts verification check (Hospital or Blood Bank)
+    let hospitalDoc = null;
+    let bloodBankDoc = null;
+    if (user.role === 'HOSPITAL' || user.role === 'BLOOD_BANK') {
+      const isHospital = user.role === 'HOSPITAL';
+      const facilityDoc = isHospital
+        ? await Hospital.findOne({ $or: [{ user: user._id }, { createdBy: user._id }] })
+        : await BloodBank.findOne({ $or: [{ user: user._id }, { createdBy: user._id }] });
+
+      if (isHospital) hospitalDoc = facilityDoc;
+      else bloodBankDoc = facilityDoc;
+
+      if (facilityDoc) {
+        if (facilityDoc.verificationStatus === 'REJECTED') {
+          let rejectionReason =
+            facilityDoc.get?.('rejectionReason') ||
+            facilityDoc.rejectionReason ||
+            '';
+
+          if (!rejectionReason && facilityDoc._id) {
+            try {
+              const rejectLog = await AuditLog.findOne({
+                entityId: facilityDoc._id,
+                action: { $in: ['HOSPITAL_REJECT', 'BLOODBANK_REJECT', 'FACILITY_REJECT'] },
+              }).sort({ createdAt: -1 });
+              if (rejectLog?.meta?.reason) {
+                rejectionReason = rejectLog.meta.reason;
+              }
+            } catch (e) {}
+          }
+
+          const message = rejectionReason
+            ? `Your application was rejected. Reason: ${rejectionReason}`
+            : 'Your application was rejected.';
+
+          return res.status(403).json({
+            success: false,
+            message,
+            isRejected: true,
+            rejectionReason: rejectionReason || null,
+          });
+        }
+
+        if (facilityDoc.verificationStatus === 'PENDING' || !facilityDoc.isVerified || user.status === 'PENDING') {
+          return res.status(403).json({
+            success: false,
+            message: 'Your organization account is pending approval. Please check back later.',
+            isPendingApproval: true,
+          });
+        }
+      } else if (user.status === 'PENDING') {
+        return res.status(403).json({
+          success: false,
+          message: 'Your organization account is pending approval. Please check back later.',
+          isPendingApproval: true,
+        });
+      }
     }
 
-    let hospitalDoc = null;
-    if (user.role === 'HOSPITAL') {
-      hospitalDoc = await Hospital.findOne({
-        $or: [{ user: user._id }, { createdBy: user._id }],
-      });
-      if (hospitalDoc) {
-        user.hospitalId = hospitalDoc._id;
-      }
+    if (hospitalDoc) {
+      user.hospitalId = hospitalDoc._id;
     }
 
     const { accessToken, refreshToken } = generateTokens(user, hospitalDoc?._id);
@@ -649,10 +701,11 @@ export const resetPassword = async (req, res, next) => {
       });
     }
 
-    if (newPassword.length < 6) {
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+    if (!passwordRegex.test(newPassword)) {
       return res.status(400).json({
         success: false,
-        message: 'New password must be at least 6 characters long.',
+        message: 'Password must be at least 8 characters with uppercase, lowercase and a number.',
       });
     }
 
@@ -708,10 +761,11 @@ export const changePassword = async (req, res, next) => {
       });
     }
 
-    if (newPassword.length < 6) {
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+    if (!newPassword || !passwordRegex.test(newPassword)) {
       return res.status(400).json({
         success: false,
-        message: 'New password must be at least 6 characters long.',
+        message: 'Password must be at least 8 characters with uppercase, lowercase and a number.',
       });
     }
 

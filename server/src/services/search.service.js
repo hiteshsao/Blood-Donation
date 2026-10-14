@@ -492,7 +492,6 @@ export const searchDonors = async ({
       user: {
         _id: donor.user?._id,
         name: donor.user?.name,
-        phone: resolvedPhone,
         city: donorCity,
         state: donorState,
         pincode: donorPincode,

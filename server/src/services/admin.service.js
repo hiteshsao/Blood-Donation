@@ -378,6 +378,11 @@ export const updateFacilityVerification = async ({
 
   facility.verificationStatus = newStatus;
   facility.isVerified = isVerified;
+  if (decision === 'REJECT') {
+    facility.set('rejectionReason', reason ? String(reason).trim() : '', { strict: false });
+  } else if (decision === 'APPROVE') {
+    facility.set('rejectionReason', '', { strict: false });
+  }
   await facility.save();
 
   if (facility.user) {

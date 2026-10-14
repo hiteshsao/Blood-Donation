@@ -95,7 +95,9 @@ router.post(
   [
     body('name').trim().notEmpty().withMessage('Full name is required'),
     body('email').isEmail().normalizeEmail().withMessage('Please provide a valid email address'),
-    body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters long'),
+    body('password')
+      .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/)
+      .withMessage('Password must be at least 8 characters with uppercase, lowercase and a number.'),
     body('phone')
       .optional()
       .trim()
@@ -421,7 +423,9 @@ router.post(
   [
     body('email').isEmail().normalizeEmail().withMessage('Valid email is required'),
     body('otp').isLength({ min: 6, max: 6 }).withMessage('OTP must be exactly 6 digits'),
-    body('newPassword').isLength({ min: 6 }).withMessage('New password must be at least 6 characters'),
+    body('newPassword')
+      .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/)
+      .withMessage('Password must be at least 8 characters with uppercase, lowercase and a number.'),
     validateRequest,
   ],
   resetPassword
@@ -451,13 +455,13 @@ router.post(
  *                 example: CurrentPassword@123
  *               newPassword:
  *                 type: string
- *                 minLength: 6
+ *                 minLength: 8
  *                 example: BrandNewPassword@2026
  *     responses:
  *       200:
  *         description: Password updated successfully.
  *       400:
- *         description: Current password incorrect or new password too short.
+ *         description: Current password incorrect or new password does not meet requirements.
  *       401:
  *         description: Unauthorized. Invalid or missing access token.
  */
@@ -466,7 +470,9 @@ router.post(
   authenticate,
   [
     body('currentPassword').notEmpty().withMessage('Current password is required'),
-    body('newPassword').isLength({ min: 6 }).withMessage('New password must be at least 6 characters long'),
+    body('newPassword')
+      .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/)
+      .withMessage('Password must be at least 8 characters with uppercase, lowercase and a number.'),
     validateRequest,
   ],
   changePassword

@@ -464,6 +464,7 @@ describe('6. Requests Management (/api/v1/admin/requests)', () => {
   beforeAll(async () => {
     testRequest = await BloodRequest.create({
       requester: regularUser._id,
+      hospital: hospitalDoc._id,
       patientName: 'Karan Mehra',
       bloodGroup: 'B+',
       units: 2,

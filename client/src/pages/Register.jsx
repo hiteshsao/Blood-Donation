@@ -97,8 +97,9 @@ export const Register = () => {
     if (!formData.phone.trim() || formData.phone.length < 10) {
       errs.phone = 'Valid 10-digit phone number is required';
     }
-    if (!formData.password || formData.password.length < 6) {
-      errs.password = 'Password must be at least 6 characters';
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+    if (!formData.password || !passwordRegex.test(formData.password)) {
+      errs.password = 'Password must be at least 8 characters with uppercase, lowercase and a number.';
     }
     if (formData.password !== formData.confirmPassword) {
       errs.confirmPassword = 'Passwords do not match';
@@ -281,11 +282,12 @@ export const Register = () => {
               label="Password"
               name="password"
               type="password"
-              placeholder="Minimum 6 characters"
+              placeholder="Min 8 chars (A-Z, a-z, 0-9)"
               required
               value={formData.password}
               onChange={handleChange}
               error={errors.password}
+              helperText="Must be at least 8 characters with uppercase, lowercase and a number."
             />
 
             <Input

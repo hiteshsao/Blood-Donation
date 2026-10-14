@@ -21,8 +21,9 @@ export const ResetPassword = () => {
     const errs = {};
     if (!email) errs.email = 'Email address is required';
     if (!otp) errs.otp = 'Verification code is required';
-    if (!newPassword || newPassword.length < 6) {
-      errs.newPassword = 'Password must be at least 6 characters';
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+    if (!newPassword || !passwordRegex.test(newPassword)) {
+      errs.newPassword = 'Password must be at least 8 characters with uppercase, lowercase and a number.';
     }
     if (newPassword !== confirmPassword) {
       errs.confirmPassword = 'Passwords do not match';
@@ -88,11 +89,15 @@ export const ResetPassword = () => {
           <Input
             label="New Password"
             type="password"
-            placeholder="Minimum 6 characters"
+            placeholder="Min 8 chars (A-Z, a-z, 0-9)"
             required
             value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
+            onChange={(e) => {
+              setNewPassword(e.target.value);
+              if (errors.newPassword) setErrors((prev) => ({ ...prev, newPassword: '' }));
+            }}
             error={errors.newPassword}
+            helperText="Must be at least 8 characters with uppercase, lowercase and a number."
           />
 
           <Input

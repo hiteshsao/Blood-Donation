@@ -38,7 +38,26 @@ export const Login = () => {
       const target = res.user?.role === 'ADMIN' ? '/admin' : from;
       navigate(target, { replace: true });
     } catch (err) {
-      toast.error(err.message || 'Invalid credentials.');
+      const data = err.response?.data || {};
+      const isRejected = data.isRejected || err.isRejected;
+      const isPending = data.isPendingApproval || err.isPendingApproval;
+
+      if (isRejected) {
+        toast.error(data.message || err.message || 'Your application was rejected.', {
+          id: 'auth-rejected-toast',
+          duration: 6000,
+          icon: '🚫',
+        });
+      } else if (isPending) {
+        toast.error(data.message || err.message || 'Your organization account is pending approval.', {
+          id: 'auth-pending-toast',
+          duration: 5000,
+          icon: '⏳',
+        });
+      } else {
+        toast.error(err.message || 'Invalid credentials.');
+      }
+
       if (err.requiresVerification && err.email) {
         navigate(`/verify-otp?email=${encodeURIComponent(err.email)}`);
       }

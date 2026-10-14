@@ -100,6 +100,13 @@ export const AuthModal = ({ isOpen, onClose }) => {
   const handleRegister = async (e) => {
     e.preventDefault();
     setError('');
+
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+    if (!regPassword || !passwordRegex.test(regPassword)) {
+      setError('Password must be at least 8 characters with uppercase, lowercase and a number.');
+      return;
+    }
+
     setLoading(true);
     try {
       const res = await register({
@@ -461,12 +468,13 @@ export const AuthModal = ({ isOpen, onClose }) => {
                     <input
                       type="password"
                       required
-                      placeholder="••••••••"
+                      placeholder="Min 8 chars (A-Z, a-z, 0-9)"
                       value={regPassword}
                       onChange={(e) => setRegPassword(e.target.value)}
                       className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-300 focus:border-[#C62828] focus:ring-1 focus:ring-[#C62828] outline-none"
                     />
                   </div>
+                  <p className="text-[10px] text-slate-500 mt-1">Min 8 chars (A-Z, a-z, 0-9)</p>
                 </div>
 
                 <div>

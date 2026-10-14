@@ -635,6 +635,19 @@ describe('6. Password Change & Reset Flow', () => {
     expect(res.status).toBe(400);
   });
 
+  it('POST /change-password should reject weak new password not meeting complexity requirements (400)', async () => {
+    const res = await request
+      .post('/api/v1/auth/change-password')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        currentPassword: 'BrandNewPassword@2026',
+        newPassword: 'weak',
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+  });
+
   it('POST /forgot-password should generate reset OTP', async () => {
     const res = await request
       .post('/api/v1/auth/forgot-password')

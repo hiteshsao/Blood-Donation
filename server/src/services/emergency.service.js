@@ -721,6 +721,13 @@ export const respondToEmergency = async (emergencyId, userId, responseValue) => 
     throw err;
   }
 
+  const donorUser = await User.findById(userId);
+  if (!donorUser || (donorUser.role !== 'USER' && donorUser.role !== 'DONOR')) {
+    const err = new Error('Only donors can respond to emergency alerts.');
+    err.statusCode = 403;
+    throw err;
+  }
+
   const emergency = await EmergencyRequest.findById(emergencyId);
   if (!emergency) {
     const err = new Error('Emergency request not found');
@@ -739,8 +746,6 @@ export const respondToEmergency = async (emergencyId, userId, responseValue) => 
     err.statusCode = 400;
     throw err;
   }
-
-  const donorUser = await User.findById(userId);
 
   // Update or insert into notifiedDonors
   let donorEntry = emergency.notifiedDonors.find(

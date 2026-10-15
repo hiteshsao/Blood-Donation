@@ -12,9 +12,8 @@ export const GlobalEmergencyPopup = () => {
   const { socket, on, off } = useSocket();
   const navigate = useNavigate();
 
-  const isDonor =
-    (user?.role || role || '').toUpperCase() === 'DONOR' ||
-    Boolean(user?.isDonor);
+  const userRole = (user?.role || role || '').toUpperCase();
+  const isDonor = userRole === 'USER' || userRole === 'DONOR';
 
   const [activeAlert, setActiveAlert] = useState(null);
   const [queue, setQueue] = useState([]);

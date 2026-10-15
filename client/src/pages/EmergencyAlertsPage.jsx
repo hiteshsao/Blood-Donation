@@ -44,6 +44,9 @@ export const EmergencyAlertsPage = () => {
   const { user } = useAuth();
   const { socket, on, off } = useSocket();
 
+  const userRole = (user?.role || '').toUpperCase();
+  const isDonorRole = userRole === 'USER' || userRole === 'DONOR';
+
   const [emergencies, setEmergencies] = useState([]);
   const [loading, setLoading] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -580,7 +583,7 @@ export const EmergencyAlertsPage = () => {
         ) : (
           emergencies.map((em) => {
             const isAcceptedOrDonated =
-              em.donorResponse === 'ACCEPTED' || em.donorResponse === 'DONATED';
+              isDonorRole && (em.donorResponse === 'ACCEPTED' || em.donorResponse === 'DONATED');
 
             if (isAcceptedOrDonated) {
               const mapsQuery = [em.hospitalAddress, em.hospitalName, em.city].filter(Boolean).join(', ');
@@ -804,9 +807,11 @@ export const EmergencyAlertsPage = () => {
                 )}
 
                 <div className="pt-2 flex flex-col gap-2.5 border-t border-slate-100">
-                  <p className="text-[11px] text-slate-500 font-medium">
-                    If you accept, your name and phone number will be shared with the requester of this emergency.
-                  </p>
+                  {isDonorRole && (
+                    <p className="text-[11px] text-slate-500 font-medium">
+                      If you accept, your name and phone number will be shared with the requester of this emergency.
+                    </p>
+                  )}
 
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
                     <div className="text-xs text-slate-500 font-medium flex items-center gap-1.5">
@@ -818,28 +823,30 @@ export const EmergencyAlertsPage = () => {
                       )}
                     </div>
 
-                    <div className="flex items-center gap-2.5 w-full sm:w-auto">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleRespond(em._id, 'REJECTED')}
-                        disabled={actionLoadingId === em._id}
-                        className="flex-1 sm:flex-none text-slate-500 hover:text-slate-800"
-                      >
-                        Decline
-                      </Button>
+                    {isDonorRole && (
+                      <div className="flex items-center gap-2.5 w-full sm:w-auto">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleRespond(em._id, 'REJECTED')}
+                          disabled={actionLoadingId === em._id}
+                          className="flex-1 sm:flex-none text-slate-500 hover:text-slate-800"
+                        >
+                          Decline
+                        </Button>
 
-                      <Button
-                        variant="sos"
-                        size="sm"
-                        onClick={() => handleRespond(em._id, 'ACCEPTED')}
-                        isLoading={actionLoadingId === em._id}
-                        className="flex-1 sm:flex-none shadow-md"
-                        leftIcon={<CheckCircle2 className="w-4 h-4" />}
-                      >
-                        Accept & Commit To Donate
-                      </Button>
-                    </div>
+                        <Button
+                          variant="sos"
+                          size="sm"
+                          onClick={() => handleRespond(em._id, 'ACCEPTED')}
+                          isLoading={actionLoadingId === em._id}
+                          className="flex-1 sm:flex-none shadow-md"
+                          leftIcon={<CheckCircle2 className="w-4 h-4" />}
+                        >
+                          Accept & Commit To Donate
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

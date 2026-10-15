@@ -290,10 +290,12 @@ export const PublicLayout = () => {
           {/* Bottom Bar */}
           <div className="pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-400 font-medium">
             <p>© {new Date().getFullYear()} LifeDrop Transfusion Network. All rights reserved.</p>
-            <div className="flex items-center gap-6">
-              <span className="hover:text-slate-600 cursor-pointer">Privacy Policy</span>
-              <span className="hover:text-slate-600 cursor-pointer">Terms of Service</span>
-              <span className="hover:text-slate-600 cursor-pointer">Clinical Ethics</span>
+            <div className="flex items-center gap-4 text-xs text-slate-400 select-none">
+              <span>Privacy Policy</span>
+              <span>•</span>
+              <span>Terms of Service</span>
+              <span>•</span>
+              <span>Clinical Ethics</span>
             </div>
           </div>
         </div>

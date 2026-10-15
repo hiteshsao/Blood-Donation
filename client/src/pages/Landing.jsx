@@ -9,13 +9,10 @@ import {
   PhoneCall,
   Search,
   CheckCircle2,
-  Clock,
   Sparkles,
-  Users,
-  Building2,
   AlertTriangle,
 } from 'lucide-react';
-import { Button, StatCard } from '../components/common';
+import { Button } from '../components/common';
 import { useAuth } from '../context/AuthContext';
 
 export const Landing = () => {
@@ -167,53 +164,6 @@ export const Landing = () => {
         </div>
       </section>
 
-      {/* ── 2. IMPACT STATS ── */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center max-w-xl mx-auto mb-10">
-          <h2 className="text-xs font-black text-[#C62828] uppercase tracking-widest">
-            Clinical Network Scale
-          </h2>
-          <h3 className="text-2xl sm:text-3xl font-black text-slate-900 mt-1">
-            Real-Time Life-Saving Metrics
-          </h3>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          <StatCard
-            title="Voluntary Donors"
-            value="124,580+"
-            subtitle="Registered & Active in Network"
-            icon={<Users className="w-6 h-6" />}
-            trend="+18% this month"
-            color="red"
-          />
-          <StatCard
-            title="Avg Emergency Time"
-            value="11.4 mins"
-            subtitle="From SOS alert to donor match"
-            icon={<Clock className="w-6 h-6" />}
-            trend="-3.2 mins faster"
-            trendDirection="up"
-            color="emerald"
-          />
-          <StatCard
-            title="Certified Blood Banks"
-            value="1,420"
-            subtitle="Connected with live inventory"
-            icon={<Building2 className="w-6 h-6" />}
-            trend="100% Verified"
-            color="blue"
-          />
-          <StatCard
-            title="Fulfilled Transfusions"
-            value="89,940+"
-            subtitle="Verified emergency units issued"
-            icon={<Heart className="w-6 h-6" />}
-            trend="99.2% success rate"
-            color="amber"
-          />
-        </div>
-      </section>
 
       {/* ── 3. HOW IT WORKS ── */}
       <section id="how-it-works" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

@@ -19,7 +19,20 @@ export const Login = () => {
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const from = location.state?.from?.pathname || '/dashboard';
+  // Extract original requested path if redirected to login
+  const rawFrom = location.state?.from;
+  const originalPath = rawFrom
+    ? (typeof rawFrom === 'string'
+        ? rawFrom
+        : `${rawFrom.pathname || ''}${rawFrom.search || ''}${rawFrom.hash || ''}`)
+    : null;
+
+  const isValidOrigin =
+    originalPath &&
+    originalPath.startsWith('/') &&
+    !['/login', '/admin/login', '/register', '/verify-otp', '/forgot-password', '/reset-password'].includes(
+      originalPath.split('?')[0]
+    );
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -35,7 +48,8 @@ export const Login = () => {
     try {
       const res = await login(email, password);
       toast.success(`Welcome back, ${res.user?.name || 'User'}!`);
-      const target = res.user?.role === 'ADMIN' ? '/admin' : from;
+      const defaultDashboard = res.user?.role === 'ADMIN' ? '/admin' : '/dashboard';
+      const target = isValidOrigin ? originalPath : defaultDashboard;
       navigate(target, { replace: true });
     } catch (err) {
       const data = err.response?.data || {};

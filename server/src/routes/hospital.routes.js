@@ -1,7 +1,10 @@
 import express from 'express';
 import { param, body } from 'express-validator';
 import { authenticate } from '../middlewares/auth.js';
-import { requireVerifiedHospital } from '../middlewares/facilityAuth.middleware.js';
+import {
+  requireVerifiedHospital,
+  requireOwnFacilityForLicense,
+} from '../middlewares/facilityAuth.middleware.js';
 import { upload } from '../middlewares/upload.js';
 import { validateRequest } from '../middlewares/validate.js';
 import {
@@ -32,7 +35,46 @@ router.get('/list', async (req, res, next) => {
   }
 });
 
-// All hospital dashboard routes require valid authentication and VERIFIED hospital status
+/**
+ * @swagger
+ * /api/v1/hospital/license:
+ *   post:
+ *     summary: Upload hospital registration/license document
+ *     description: Allowed for PENDING or VERIFIED hospitals (and facility accounts) for their own facility.
+ *     tags: [Hospital]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               license:
+ *                 type: string
+ *                 format: binary
+ *               licenseNumber:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: License uploaded successfully
+ */
+router.post(
+  '/license',
+  authenticate,
+  requireOwnFacilityForLicense,
+  upload.single('license'),
+  uploadLicense
+);
+router.put(
+  '/license',
+  authenticate,
+  requireOwnFacilityForLicense,
+  upload.single('license'),
+  uploadLicense
+);
+
+// All remaining hospital dashboard routes require valid authentication and VERIFIED hospital status
 router.use(authenticate, requireVerifiedHospital);
 
 /**
@@ -66,32 +108,6 @@ router.use(authenticate, requireVerifiedHospital);
  */
 router.get('/profile', getProfile);
 router.put('/profile', updateProfile);
-
-/**
- * @swagger
- * /api/v1/hospital/license:
- *   post:
- *     summary: Upload hospital registration/license document
- *     tags: [Hospital]
- *     security:
- *       - BearerAuth: []
- *     requestBody:
- *       content:
- *         multipart/form-data:
- *           schema:
- *             type: object
- *             properties:
- *               license:
- *                 type: string
- *                 format: binary
- *               licenseNumber:
- *                 type: string
- *     responses:
- *       200:
- *         description: License uploaded successfully
- */
-router.post('/license', upload.single('license'), uploadLicense);
-router.put('/license', upload.single('license'), uploadLicense);
 
 /**
  * @swagger

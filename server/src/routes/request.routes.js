@@ -2,6 +2,7 @@ import express from 'express';
 import { body, query, param } from 'express-validator';
 import { authenticate, authorize } from '../middlewares/auth.js';
 import { validateRequest } from '../middlewares/validate.js';
+import { requireVerifiedIfFacility } from '../middlewares/facilityAuth.middleware.js';
 import {
   createRequest,
   getMyRequests,
@@ -102,6 +103,7 @@ const validStatuses = [
 router.post(
   '/',
   authenticate,
+  requireVerifiedIfFacility,
   [
     body('patientName').trim().notEmpty().withMessage('Patient name is required'),
     body('bloodGroup')

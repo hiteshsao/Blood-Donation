@@ -119,3 +119,121 @@ export const requireVerifiedBloodBank = async (req, res, next) => {
     next(err);
   }
 };
+
+/**
+ * Middleware ensuring that if the authenticated user's role is HOSPITAL or BLOOD_BANK,
+ * their linked facility must have VERIFIED status.
+ * If not verified, returns 403: "Your organization is not verified yet."
+ * Roles USER, DONOR, and ADMIN are unaffected.
+ */
+export const requireVerifiedIfFacility = async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required.',
+      });
+    }
+
+    if (req.user.role === 'HOSPITAL') {
+      const hospital = await Hospital.findOne({
+        $or: [{ user: req.user._id }, { _id: req.user.hospital }, { email: req.user.email }],
+      });
+
+      const isVerified =
+        hospital &&
+        (hospital.verificationStatus === 'VERIFIED' ||
+          hospital.verificationStatus === 'APPROVED' ||
+          hospital.isVerified === true);
+
+      if (!isVerified) {
+        return res.status(403).json({
+          success: false,
+          message: 'Your organization is not verified yet.',
+        });
+      }
+      req.hospital = hospital;
+    } else if (req.user.role === 'BLOOD_BANK') {
+      const bloodBank = await BloodBank.findOne({
+        $or: [{ user: req.user._id }, { _id: req.user.bloodBank }, { email: req.user.email }],
+      });
+
+      const isVerified =
+        bloodBank &&
+        (bloodBank.verificationStatus === 'VERIFIED' ||
+          bloodBank.verificationStatus === 'APPROVED' ||
+          bloodBank.isVerified === true);
+
+      if (!isVerified) {
+        return res.status(403).json({
+          success: false,
+          message: 'Your organization is not verified yet.',
+        });
+      }
+      req.bloodBank = bloodBank;
+    }
+
+    next();
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Middleware for license upload: requires authenticated user with role HOSPITAL or BLOOD_BANK (or ADMIN),
+ * and attaches their own facility (even if PENDING).
+ */
+export const requireOwnFacilityForLicense = async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required.',
+      });
+    }
+
+    if (req.user.role !== 'HOSPITAL' && req.user.role !== 'BLOOD_BANK' && req.user.role !== 'ADMIN') {
+      return res.status(403).json({
+        success: false,
+        message: `Forbidden: Access restricted to facility accounts. Your role is '${req.user.role}'.`,
+      });
+    }
+
+    let hospital = null;
+    if (req.user.role === 'ADMIN' && req.headers['x-hospital-id']) {
+      hospital = await Hospital.findById(req.headers['x-hospital-id']);
+    }
+
+    if (!hospital) {
+      hospital = await Hospital.findOne({
+        $or: [{ user: req.user._id }, { _id: req.user.hospital }, { email: req.user.email }],
+      });
+    }
+
+    if (!hospital && req.user.role === 'BLOOD_BANK') {
+      const bloodBank = await BloodBank.findOne({
+        $or: [{ user: req.user._id }, { _id: req.user.bloodBank }, { email: req.user.email }],
+      });
+      if (bloodBank) {
+        req.bloodBank = bloodBank;
+        req.hospital = bloodBank;
+      }
+    }
+
+    if (!hospital && !req.hospital) {
+      return res.status(404).json({
+        success: false,
+        message: 'Hospital profile not found for this user account. Please register your hospital profile first.',
+      });
+    }
+
+    if (hospital) {
+      req.hospital = hospital;
+    }
+
+    next();
+  } catch (err) {
+    next(err);
+  }
+};
+

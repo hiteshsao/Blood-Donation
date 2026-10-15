@@ -385,20 +385,30 @@ export const createEmergencyRequest = async (userId, data) => {
   const patientName = data.patientName?.trim() || 'Emergency Patient';
   const radiusKm = Math.max(1, parseFloat(data.radiusKm) || 15);
 
-  let hospitalId = data.hospital || data.hospitalId || null;
-  let hospitalName = data.hospitalName || '';
+  let hospitalId = null;
+  let hospitalName = '';
 
   if (user.role === 'HOSPITAL') {
+    // For HOSPITAL role: hospitalId and hospitalName must always come from linked facility
+    // Client-supplied hospitalId / hospitalName / hospital is ignored to prevent spoofing
     const hospital = await Hospital.findOne({
-      $or: [{ user: userId }, { createdBy: userId }],
+      $or: [{ user: userId }, { createdBy: userId }, { _id: user.hospital }, { email: user.email }],
     });
-    if (hospital) {
-      hospitalId = hospital._id;
-      hospitalName = hospital.name;
+    if (!hospital) {
+      const err = new Error('Linked hospital facility not found.');
+      err.statusCode = 403;
+      throw err;
     }
-  } else if (hospitalId && !hospitalName) {
-    const hospital = await Hospital.findById(hospitalId);
-    if (hospital) hospitalName = hospital.name;
+    hospitalId = hospital._id;
+    hospitalName = hospital.name;
+  } else {
+    // USER / DONOR / ADMIN: preserve current behavior (free-text or registry lookup)
+    hospitalId = data.hospital || data.hospitalId || null;
+    hospitalName = data.hospitalName || '';
+    if (hospitalId && !hospitalName) {
+      const hospital = await Hospital.findById(hospitalId);
+      if (hospital) hospitalName = hospital.name;
+    }
   }
 
   const location = parseLocation(data.location || user.location);

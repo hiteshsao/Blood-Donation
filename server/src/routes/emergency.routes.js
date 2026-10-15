@@ -3,6 +3,7 @@ import { body, param } from 'express-validator';
 import { authenticate } from '../middlewares/auth.js';
 import { validateRequest } from '../middlewares/validate.js';
 import { emergencyCreateLimiter } from '../middlewares/rateLimit.js';
+import { requireVerifiedIfFacility } from '../middlewares/facilityAuth.middleware.js';
 import {
   createEmergency,
   getNearby,
@@ -93,6 +94,7 @@ const validBloodGroups = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 router.post(
   '/',
   authenticate,
+  requireVerifiedIfFacility,
   emergencyCreateLimiter,
   [
     body('bloodGroup')

@@ -281,8 +281,15 @@ export const NotificationProvider = ({ children }) => {
   }, [socket, on, off, navigate, showBrowserNotification]);
 
   const markAsRead = useCallback(async (id) => {
+    let previousItem;
     setNotifications((prev) =>
-      prev.map((n) => ((n._id === id || n.id === id) ? { ...n, isRead: true, read: true } : n))
+      prev.map((n) => {
+        if (n._id === id || n.id === id) {
+          previousItem = n;
+          return { ...n, isRead: true, read: true };
+        }
+        return n;
+      })
     );
 
     if (token?.startsWith('demo_token_')) return;
@@ -290,32 +297,66 @@ export const NotificationProvider = ({ children }) => {
     try {
       await api.put(`/notifications/${id}/read`);
     } catch {
-      // Local state already updated
+      if (previousItem) {
+        setNotifications((prev) =>
+          prev.map((n) => (n._id === id || n.id === id ? previousItem : n))
+        );
+      }
+      toast.error('Could not update notification');
     }
   }, [token]);
 
   const markAllAsRead = useCallback(async () => {
-    setNotifications((prev) =>
-      prev.map((n) => ({ ...n, isRead: true, read: true }))
-    );
+    let previousNotifications;
+    setNotifications((prev) => {
+      previousNotifications = prev;
+      return prev.map((n) => ({ ...n, isRead: true, read: true }));
+    });
 
     if (token?.startsWith('demo_token_')) return;
 
     try {
       await api.put('/notifications/read-all');
     } catch {
-      // Local state already updated
+      if (previousNotifications) {
+        setNotifications((current) => {
+          const prevMap = new Map(
+            previousNotifications.map((n) => [n._id || n.id, n])
+          );
+          return current.map((n) => prevMap.get(n._id || n.id) || n);
+        });
+      }
+      toast.error('Could not update notification');
     }
   }, [token]);
 
   const clearNotification = useCallback(async (id) => {
-    setNotifications((prev) => prev.filter((n) => n._id !== id && n.id !== id));
+    let removedItem;
+    let removedIndex = -1;
+    setNotifications((prev) => {
+      removedIndex = prev.findIndex((n) => n._id === id || n.id === id);
+      if (removedIndex !== -1) {
+        removedItem = prev[removedIndex];
+      }
+      return prev.filter((n) => n._id !== id && n.id !== id);
+    });
+
     if (token?.startsWith('demo_token_')) return;
 
     try {
       await api.delete(`/notifications/${id}`);
     } catch {
-      // Local state updated
+      if (removedItem) {
+        setNotifications((current) => {
+          const exists = current.some((n) => n._id === id || n.id === id);
+          if (exists) return current;
+          const next = [...current];
+          const insertIdx = Math.min(Math.max(removedIndex, 0), next.length);
+          next.splice(insertIdx, 0, removedItem);
+          return next;
+        });
+      }
+      toast.error('Could not update notification');
     }
   }, [token]);
 

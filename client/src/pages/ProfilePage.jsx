@@ -32,7 +32,7 @@ const BLOOD_GROUPS = [
 ];
 
 export const ProfilePage = () => {
-  const { user, updateUser, refreshUser } = useAuth();
+  const { user, donorProfile, updateUser, refreshUser } = useAuth();
 
   const [loading, setLoading] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
@@ -74,12 +74,20 @@ export const ProfilePage = () => {
   const [isDonor, setIsDonor] = useState(user?.role === 'DONOR' || user?.isDonor || false);
   const [isAvailable, setIsAvailable] = useState(user?.donorProfile?.isAvailable ?? true);
   const [donorWeight, setDonorWeight] = useState(65);
-  const [eligibility, setEligibility] = useState({
-    isEligible: true,
-    nextEligibleDate: 'Immediate',
-    daysRemaining: 0,
-    reason: 'Standard 90-day donation interval satisfied.',
-  });
+  const [localVerificationStatus, setLocalVerificationStatus] = useState(null);
+  const [eligibilityLoading, setEligibilityLoading] = useState(false);
+  const [eligibilityError, setEligibilityError] = useState(false);
+  const [eligibility, setEligibility] = useState(null);
+
+  const verificationStatus =
+    localVerificationStatus ||
+    donorProfile?.verificationStatus ||
+    user?.donorProfile?.verificationStatus ||
+    (donorProfile?.isVerified || user?.donorProfile?.isVerified
+      ? 'VERIFIED'
+      : isDonor
+      ? 'PENDING'
+      : null);
 
   // Sync state when user context updates
   useEffect(() => {
@@ -111,38 +119,47 @@ export const ProfilePage = () => {
       });
 
       setIsDonor(user.role === 'DONOR' || user.isDonor || false);
-      setIsAvailable(user.donorProfile?.isAvailable ?? true);
+      setIsAvailable(user.donorProfile?.isAvailable ?? donorProfile?.isAvailable ?? true);
+      if (donorProfile?.verificationStatus) {
+        setLocalVerificationStatus(donorProfile.verificationStatus);
+      } else if (user.donorProfile?.verificationStatus) {
+        setLocalVerificationStatus(user.donorProfile.verificationStatus);
+      }
     }
-  }, [user]);
+  }, [user, donorProfile]);
 
   // Fetch live eligibility if donor
-  useEffect(() => {
-    const fetchEligibility = async () => {
-      if (!isDonor || !isEligibleDonorRole) return;
-      try {
-        const res = await donorAPI.getEligibility();
-        if (res.data?.success) {
-          setEligibility({
-            isEligible: res.data.isEligible,
-            nextEligibleDate: res.data.nextEligibleDate
-              ? new Date(res.data.nextEligibleDate).toLocaleDateString()
-              : 'Immediate',
-            daysRemaining: res.data.daysRemaining || 0,
-            reason: res.data.reason || 'Medical eligibility cleared.',
-          });
-        }
-      } catch {
-        // Fallback calculation for demo personas
+  const fetchEligibility = async () => {
+    if (!isDonor || !isEligibleDonorRole) return;
+    setEligibilityLoading(true);
+    setEligibilityError(false);
+    try {
+      const res = await donorAPI.getEligibility();
+      if (res.data?.success) {
         setEligibility({
-          isEligible: true,
-          nextEligibleDate: 'Immediate',
-          daysRemaining: 0,
-          reason: 'Cleared for voluntary blood donation.',
+          isEligible: res.data.isEligible,
+          nextEligibleDate: res.data.nextEligibleDate
+            ? new Date(res.data.nextEligibleDate).toLocaleDateString()
+            : 'Immediate',
+          daysRemaining: res.data.daysRemaining || 0,
+          reason: res.data.reason || 'Medical eligibility cleared.',
         });
+        setEligibilityError(false);
+      } else {
+        setEligibilityError(true);
+        setEligibility(null);
       }
-    };
+    } catch {
+      setEligibilityError(true);
+      setEligibility(null);
+    } finally {
+      setEligibilityLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchEligibility();
-  }, [isDonor]);
+  }, [isDonor, isEligibleDonorRole]);
 
   // Update Profile
   const handleSaveProfile = async (e) => {
@@ -275,12 +292,13 @@ export const ProfilePage = () => {
   const handleBecomeDonor = async () => {
     setEnrollingDonor(true);
     try {
-      await profileAPI.becomeDonor({
+      const res = await profileAPI.becomeDonor({
         bloodGroup: profileData.bloodGroup,
         weightKg: Number(donorWeight),
       });
       setIsDonor(true);
       setIsAvailable(true);
+      setLocalVerificationStatus(res?.data?.donorProfile?.verificationStatus || 'PENDING');
       toast.success('🎉 Enrolled as a Voluntary Donor! Thank you for saving lives.');
       await refreshUser();
     } catch (err) {
@@ -301,9 +319,7 @@ export const ProfilePage = () => {
         nextState ? 'Status set to AVAILABLE for emergencies' : 'Status set to UNAVAILABLE (Resting)'
       );
     } catch (err) {
-      // Fallback toggle
-      setIsAvailable(nextState);
-      toast.success(nextState ? 'Availability active' : 'Availability paused');
+      toast.error(err.response?.data?.message || err.message || 'Failed to update availability status.');
     } finally {
       setTogglingAvailability(false);
     }
@@ -377,49 +393,127 @@ export const ProfilePage = () => {
         )}
       </div>
 
+      {/* Pending / Rejected Verification Notice */}
+      {isEligibleDonorRole && isDonor && (verificationStatus === 'PENDING' || verificationStatus === 'REJECTED') && (
+        <div
+          className={`rounded-3xl p-5 sm:p-6 shadow-sm flex items-start gap-4 ${
+            verificationStatus === 'REJECTED'
+              ? 'bg-red-50 border border-red-200'
+              : 'bg-amber-50 border border-amber-200'
+          }`}
+        >
+          <div
+            className={`p-2.5 rounded-2xl shrink-0 mt-0.5 ${
+              verificationStatus === 'REJECTED'
+                ? 'bg-red-100 text-[#C62828]'
+                : 'bg-amber-100 text-amber-700'
+            }`}
+          >
+            <AlertCircle className="w-5 h-5" />
+          </div>
+          <div>
+            <h4
+              className={`text-sm font-black ${
+                verificationStatus === 'REJECTED' ? 'text-red-900' : 'text-amber-900'
+              }`}
+            >
+              {verificationStatus === 'REJECTED'
+                ? 'Verification Rejected'
+                : 'Pending Admin Verification'}
+            </h4>
+            <p
+              className={`text-xs font-medium mt-1 leading-relaxed ${
+                verificationStatus === 'REJECTED' ? 'text-red-800' : 'text-amber-800'
+              }`}
+            >
+              {verificationStatus === 'REJECTED'
+                ? 'Verification was rejected. Contact support.'
+                : 'Your donor profile is pending admin verification. You can book appointments and receive emergency alerts only after verification.'}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Donor Eligibility Card */}
       {isEligibleDonorRole && isDonor && (
         <div className="rounded-3xl bg-gradient-to-r from-red-50 via-rose-50 to-white border border-red-100 p-6 sm:p-8 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-start gap-4">
-              <div className="p-3 rounded-2xl bg-white text-[#C62828] border border-red-200 shadow-sm shrink-0">
-                <ShieldCheck className="w-7 h-7" />
+          {eligibilityError ? (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-4">
+                <div className="p-3 rounded-2xl bg-amber-50 text-amber-600 border border-amber-200 shadow-sm shrink-0">
+                  <AlertCircle className="w-7 h-7" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                    Clinical Eligibility Clearance
+                  </span>
+                  <h3 className="text-lg font-black text-slate-900 mt-1">
+                    Donation Readiness Status
+                  </h3>
+                  <p className="text-xs text-amber-800 font-medium mt-1 leading-relaxed">
+                    Eligibility could not be checked. Try again.
+                  </p>
+                </div>
               </div>
-              <div>
-                <span className="text-[10px] font-black uppercase tracking-wider text-[#C62828] bg-red-100 px-2 py-0.5 rounded-full">
-                  Clinical Eligibility Clearance
-                </span>
-                <h3 className="text-lg font-black text-slate-900 mt-1">
-                  Donation Readiness Status
-                </h3>
-                <p className="text-xs text-slate-600 font-medium mt-1 leading-relaxed">
-                  {eligibility.reason}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-6 border-t sm:border-t-0 sm:border-l border-red-100 pt-4 sm:pt-0 sm:pl-6 shrink-0">
-              <div>
-                <p className="text-[10px] font-black uppercase text-slate-400">Next Eligible</p>
-                <p className="text-base font-black text-slate-900 mt-0.5">
-                  {eligibility.nextEligibleDate}
-                </p>
-              </div>
-
-              <div>
-                <p className="text-[10px] font-black uppercase text-slate-400">Cooldown</p>
-                <span
-                  className={`inline-block px-2.5 py-1 rounded-xl text-xs font-black ${
-                    eligibility.daysRemaining === 0
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : 'bg-amber-100 text-amber-800'
-                  }`}
+              <div className="flex items-center sm:border-l border-amber-200 sm:pt-0 sm:pl-6 shrink-0">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={fetchEligibility}
+                  isLoading={eligibilityLoading}
                 >
-                  {eligibility.daysRemaining === 0 ? 'Ready' : `${eligibility.daysRemaining}d rest`}
-                </span>
+                  Retry
+                </Button>
               </div>
             </div>
-          </div>
+          ) : eligibilityLoading ? (
+            <div className="flex items-center justify-center py-6 gap-3 text-slate-500 text-sm">
+              <Loader2 className="w-5 h-5 animate-spin text-[#C62828]" />
+              <span>Checking clinical eligibility...</span>
+            </div>
+          ) : eligibility ? (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-4">
+                <div className="p-3 rounded-2xl bg-white text-[#C62828] border border-red-200 shadow-sm shrink-0">
+                  <ShieldCheck className="w-7 h-7" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[#C62828] bg-red-100 px-2 py-0.5 rounded-full">
+                    Clinical Eligibility Clearance
+                  </span>
+                  <h3 className="text-lg font-black text-slate-900 mt-1">
+                    Donation Readiness Status
+                  </h3>
+                  <p className="text-xs text-slate-600 font-medium mt-1 leading-relaxed">
+                    {eligibility.reason}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-6 border-t sm:border-t-0 sm:border-l border-red-100 pt-4 sm:pt-0 sm:pl-6 shrink-0">
+                <div>
+                  <p className="text-[10px] font-black uppercase text-slate-400">Next Eligible</p>
+                  <p className="text-base font-black text-slate-900 mt-0.5">
+                    {eligibility.nextEligibleDate}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-[10px] font-black uppercase text-slate-400">Cooldown</p>
+                  <span
+                    className={`inline-block px-2.5 py-1 rounded-xl text-xs font-black ${
+                      eligibility.daysRemaining === 0
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-amber-100 text-amber-800'
+                    }`}
+                  >
+                    {eligibility.daysRemaining === 0 ? 'Ready' : `${eligibility.daysRemaining}d rest`}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
 

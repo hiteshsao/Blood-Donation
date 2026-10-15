@@ -116,6 +116,7 @@ export const authAPI = {
   verifyOtp: (payload) => api.post('/v1/auth/verify-otp', payload),
   resendOtp: (payload) => api.post('/v1/auth/resend-otp', payload),
   logout: () => api.post('/v1/auth/logout'),
+  changePassword: (passwords) => api.post('/v1/auth/change-password', passwords),
 };
 
 export const adminLogin = (credentials) => api.post('/v1/auth/admin/login', credentials);

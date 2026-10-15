@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   User as UserIcon,
   MapPin,
@@ -14,10 +14,12 @@ import {
   Power,
   Droplet,
   Save,
+  Camera,
+  Lock,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
-import { profileAPI, donorAPI } from '../services/api';
+import { profileAPI, donorAPI, authAPI } from '../services/api';
 import { Button, Input, Select, StatusBadge, Loader } from '../components/common';
 
 const BLOOD_GROUPS = [
@@ -40,6 +42,35 @@ export const ProfilePage = () => {
   const [locating, setLocating] = useState(false);
   const [enrollingDonor, setEnrollingDonor] = useState(false);
   const [togglingAvailability, setTogglingAvailability] = useState(false);
+
+  // Password & Photo States
+  const [passwordData, setPasswordData] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoLoadError, setPhotoLoadError] = useState(false);
+  const fileInputRef = useRef(null);
+
+  const currentPhoto = user?.profilePhotoUrl || user?.profilePhoto;
+
+  const getPhotoUrl = (url) => {
+    if (!url) return null;
+    if (
+      url.startsWith('http://') ||
+      url.startsWith('https://') ||
+      url.startsWith('blob:') ||
+      url.startsWith('data:')
+    ) {
+      return url;
+    }
+    const cleanUrl = url.startsWith('/') ? url : `/${url}`;
+    const backendBase =
+      import.meta.env.VITE_BACKEND_URL || (import.meta.env.DEV ? 'http://localhost:5000' : '');
+    return `${backendBase}${cleanUrl}`;
+  };
 
   // Profile Form State
   const [profileData, setProfileData] = useState({
@@ -325,21 +356,153 @@ export const ProfilePage = () => {
     }
   };
 
+  // Handle Profile Photo Upload
+  const handlePhotoChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Client file validation: image only
+    const allowedMimes = ['image/jpeg', 'image/png', 'image/webp'];
+    const allowedExts = /\.(jpe?g|png|webp)$/i;
+    if (!allowedMimes.includes(file.type) && !allowedExts.test(file.name)) {
+      toast.error('Only JPEG, PNG, and WebP images are allowed.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    // Size limit check (server limit 5 MB)
+    const MAX_FILE_SIZE = 5 * 1024 * 1024;
+    if (file.size > MAX_FILE_SIZE) {
+      toast.error('Image size must be less than 5 MB.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('photo', file);
+
+    setUploadingPhoto(true);
+    try {
+      const res = await profileAPI.uploadPhoto(formData);
+      const photoUrl =
+        res.data?.profilePhotoUrl ||
+        res.data?.user?.profilePhotoUrl ||
+        res.data?.user?.profilePhoto ||
+        res.data?.photoUrl;
+
+      if (photoUrl) {
+        updateUser({
+          profilePhotoUrl: photoUrl,
+          profilePhoto: photoUrl,
+        });
+        setPhotoLoadError(false);
+      }
+      toast.success(res.data?.message || 'Profile photo uploaded successfully!');
+    } catch (err) {
+      toast.error(err.response?.data?.message || err.message || 'Failed to upload photo.');
+    } finally {
+      setUploadingPhoto(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // Handle Change Password (no passwords logged in console)
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    const { currentPassword, newPassword, confirmPassword } = passwordData;
+
+    if (!currentPassword) {
+      toast.error('Current password is required.');
+      return;
+    }
+
+    if (!newPassword) {
+      toast.error('New password is required.');
+      return;
+    }
+
+    // Rule: kam se kam 8 chars, 1 uppercase, 1 lowercase, 1 number
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+    if (!passwordRegex.test(newPassword)) {
+      toast.error('Password must be at least 8 characters with uppercase, lowercase and a number.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      toast.error('New password and confirm password do not match.');
+      return;
+    }
+
+    setChangingPassword(true);
+    try {
+      const res = await authAPI.changePassword({ currentPassword, newPassword });
+      toast.success(res.data?.message || 'Password changed successfully!');
+      setPasswordData({
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: '',
+      });
+    } catch (err) {
+      const errMsg = err.response?.data?.message || err.message || 'Failed to change password.';
+      toast.error(errMsg);
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
   return (
     <div className="space-y-8 max-w-5xl mx-auto">
       {/* Top Profile Header Card */}
       <div className="rounded-3xl bg-white border border-red-100 p-6 sm:p-8 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-6">
         <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-[#991B1B] to-[#C62828] text-white font-black text-2xl flex items-center justify-center shadow-lg shadow-red-900/20 shrink-0">
-            {profileData.name ? profileData.name.charAt(0).toUpperCase() : 'U'}
+          <div className="relative group shrink-0">
+            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl overflow-hidden bg-gradient-to-tr from-[#991B1B] to-[#C62828] text-white font-black text-2xl flex items-center justify-center shadow-lg shadow-red-900/20 border-2 border-red-100 relative">
+              {currentPhoto && !photoLoadError ? (
+                <img
+                  src={getPhotoUrl(currentPhoto)}
+                  alt={profileData.name || 'User'}
+                  className="w-full h-full object-cover"
+                  onError={() => setPhotoLoadError(true)}
+                />
+              ) : (
+                <span>{profileData.name ? profileData.name.charAt(0).toUpperCase() : 'U'}</span>
+              )}
+              {uploadingPhoto && (
+                <div className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-2xl">
+                  <Loader2 className="w-6 h-6 animate-spin text-white" />
+                </div>
+              )}
+            </div>
+
+            {/* Hidden File Input for Avatar */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={handlePhotoChange}
+              className="hidden"
+              id="avatar-photo-input"
+            />
+
+            {/* Change photo button on avatar */}
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadingPhoto}
+              title="Change photo"
+              className="absolute -bottom-1 -right-1 bg-white hover:bg-slate-50 text-[#C62828] p-1.5 rounded-full shadow-md border border-slate-200 transition-transform hover:scale-110 focus:outline-none"
+            >
+              <Camera className="w-3.5 h-3.5" />
+            </button>
           </div>
+
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl sm:text-2xl font-black text-slate-900">{profileData.name}</h1>
               <StatusBadge status={user?.status || 'ACTIVE'} size="xs" />
             </div>
             <p className="text-xs text-slate-500 font-medium">{profileData.email}</p>
-            <div className="mt-2 flex items-center gap-2">
+            <div className="mt-2 flex flex-wrap items-center gap-2">
               <span className="px-2.5 py-0.5 rounded-full bg-red-100 text-[#C62828] font-black text-xs">
                 Group {profileData.bloodGroup}
               </span>
@@ -348,6 +511,16 @@ export const ProfilePage = () => {
                 <MapPin className="w-3.5 h-3.5 text-slate-400" />
                 {addressData.city || 'Location not set'}
               </span>
+              <span className="text-xs text-slate-400 font-bold">•</span>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingPhoto}
+                className="text-xs font-bold text-[#C62828] hover:text-red-700 underline focus:outline-none inline-flex items-center gap-1"
+              >
+                <Camera className="w-3 h-3" />
+                {uploadingPhoto ? 'Uploading...' : 'Change photo'}
+              </button>
             </div>
           </div>
         </div>
@@ -723,6 +896,65 @@ export const ProfilePage = () => {
             </div>
           </form>
         </div>
+      </div>
+
+      {/* ── Security & Account Settings (Change Password) Card ── */}
+      <div className="bg-white rounded-3xl border border-red-100 p-6 sm:p-8 shadow-sm space-y-6 max-w-2xl">
+        <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+          <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
+            <Lock className="w-5 h-5 text-[#C62828]" />
+            Change Password
+          </h3>
+          <span className="text-xs font-bold text-slate-400">Security</span>
+        </div>
+
+        <form onSubmit={handleChangePassword} className="space-y-4">
+          <Input
+            label="Current Password"
+            type="password"
+            placeholder="Enter current password"
+            value={passwordData.currentPassword}
+            onChange={(e) =>
+              setPasswordData((prev) => ({ ...prev, currentPassword: e.target.value }))
+            }
+            required
+          />
+
+          <Input
+            label="New Password"
+            type="password"
+            placeholder="Enter new password (min. 8 characters)"
+            value={passwordData.newPassword}
+            onChange={(e) =>
+              setPasswordData((prev) => ({ ...prev, newPassword: e.target.value }))
+            }
+            required
+            helperText="Rule: At least 8 characters with 1 uppercase, 1 lowercase, and 1 number."
+          />
+
+          <Input
+            label="Confirm New Password"
+            type="password"
+            placeholder="Re-enter new password"
+            value={passwordData.confirmPassword}
+            onChange={(e) =>
+              setPasswordData((prev) => ({ ...prev, confirmPassword: e.target.value }))
+            }
+            required
+          />
+
+          <div className="pt-2 flex justify-end">
+            <Button
+              type="submit"
+              variant="primary"
+              size="md"
+              isLoading={changingPassword}
+              leftIcon={<Lock className="w-4 h-4" />}
+            >
+              Update Password
+            </Button>
+          </div>
+        </form>
       </div>
     </div>
   );

@@ -252,13 +252,7 @@ export const BloodRequestsPage = () => {
       setCancelModalOpen(false);
       fetchMyRequests();
     } catch (err) {
-      // Local update fallback
-      setMyRequests((prev) =>
-        prev.map((r) =>
-          r._id === selectedRequestToCancel._id ? { ...r, status: 'CANCELLED' } : r
-        )
-      );
-      toast.success('Blood request cancelled.');
+      toast.error(err.response?.data?.message || err.message || 'Failed to cancel blood request.');
       setCancelModalOpen(false);
     }
   };

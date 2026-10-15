@@ -89,16 +89,7 @@ export const FeedbackPage = () => {
       setActiveTab('my');
       fetchMyFeedbacks();
     } catch (err) {
-      // Local fallback submission
-      const newFb = {
-        _id: `fb-${Date.now()}`,
-        ...formData,
-        status: 'PENDING',
-        createdAt: new Date().toISOString(),
-      };
-      setFeedbacks((prev) => [newFb, ...prev]);
-      toast.success('Your ticket has been logged successfully!');
-      setActiveTab('my');
+      toast.error(err.response?.data?.message || err.message || 'Failed to submit feedback ticket.');
     } finally {
       setIsSubmitting(false);
     }

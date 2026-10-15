@@ -29,17 +29,6 @@ import {
   Modal,
 } from '../components/common';
 
-const DEFAULT_SLOTS = [
-  '09:00 AM - 10:00 AM',
-  '10:00 AM - 11:00 AM',
-  '11:00 AM - 12:00 PM',
-  '01:00 PM - 02:00 PM',
-  '02:00 PM - 03:00 PM',
-  '03:00 PM - 04:00 PM',
-  '04:00 PM - 05:00 PM',
-];
-
-
 export const formatAddress = (addr, fallbackCity = '') => {
   if (!addr) return fallbackCity;
   if (typeof addr === 'string') return addr;
@@ -68,15 +57,16 @@ const DonorAppointmentsView = () => {
   const [selectedDate, setSelectedDate] = useState(
     new Date(Date.now() + 1000 * 60 * 60 * 24 * 2).toISOString().split('T')[0]
   );
-  const [availableSlots, setAvailableSlots] = useState(DEFAULT_SLOTS);
-  const [selectedSlot, setSelectedSlot] = useState(DEFAULT_SLOTS[1]);
+  const [availableSlots, setAvailableSlots] = useState([]);
+  const [selectedSlot, setSelectedSlot] = useState('');
   const [bookingNotes, setBookingNotes] = useState('');
 
   // Reschedule & Cancel Modal States
   const [rescheduleModalOpen, setRescheduleModalOpen] = useState(false);
   const [selectedAptToReschedule, setSelectedAptToReschedule] = useState(null);
   const [newRescheduleDate, setNewRescheduleDate] = useState('');
-  const [newRescheduleSlot, setNewRescheduleSlot] = useState(DEFAULT_SLOTS[0]);
+  const [newRescheduleSlot, setNewRescheduleSlot] = useState('');
+  const [rescheduleSlots, setRescheduleSlots] = useState([]);
   const [isRescheduling, setIsRescheduling] = useState(false);
 
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
@@ -132,8 +122,16 @@ const DonorAppointmentsView = () => {
   // Fetch slots whenever bank or date changes
   useEffect(() => {
     const fetchSlots = async () => {
-      if (!selectedBankId || !selectedDate) return;
-      if (!/^[0-9a-fA-F]{24}$/.test(selectedBankId)) return;
+      if (!selectedBankId || !selectedDate) {
+        setAvailableSlots([]);
+        setSelectedSlot('');
+        return;
+      }
+      if (!/^[0-9a-fA-F]{24}$/.test(selectedBankId)) {
+        setAvailableSlots([]);
+        setSelectedSlot('');
+        return;
+      }
       try {
         const res = await appointmentAPI.getSlots(selectedBankId, selectedDate);
         const slotsList = res.data?.data?.slots || res.data?.slots || res.data?.data;
@@ -141,20 +139,54 @@ const DonorAppointmentsView = () => {
           const availableList = slotsList
             .filter((s) => s.isAvailable !== false)
             .map((s) => (typeof s === 'string' ? s : s.slotTime || s.time));
-          const finalSlots = availableList.length > 0 ? availableList : slotsList.map((s) => (typeof s === 'string' ? s : s.slotTime || s.time));
-          setAvailableSlots(finalSlots);
-          setSelectedSlot((prev) => (finalSlots.includes(prev) ? prev : finalSlots[0] || DEFAULT_SLOTS[0]));
+          setAvailableSlots(availableList);
+          setSelectedSlot((prev) => (availableList.includes(prev) ? prev : availableList[0] || ''));
         } else {
-          setAvailableSlots(DEFAULT_SLOTS);
-          setSelectedSlot(DEFAULT_SLOTS[0]);
+          setAvailableSlots([]);
+          setSelectedSlot('');
         }
       } catch {
-        setAvailableSlots(DEFAULT_SLOTS);
-        setSelectedSlot(DEFAULT_SLOTS[0]);
+        setAvailableSlots([]);
+        setSelectedSlot('');
       }
     };
     fetchSlots();
   }, [selectedBankId, selectedDate]);
+
+  // Fetch slots for reschedule date
+  useEffect(() => {
+    const fetchRescheduleSlots = async () => {
+      if (!selectedAptToReschedule || !newRescheduleDate) {
+        setRescheduleSlots([]);
+        return;
+      }
+      const bankId = selectedAptToReschedule.bloodBank?._id || selectedAptToReschedule.bloodBank;
+      if (!bankId || !/^[0-9a-fA-F]{24}$/.test(String(bankId))) {
+        setRescheduleSlots([]);
+        return;
+      }
+      try {
+        const res = await appointmentAPI.getSlots(bankId, newRescheduleDate);
+        const slotsList = res.data?.data?.slots || res.data?.slots || res.data?.data;
+        if (Array.isArray(slotsList) && slotsList.length > 0) {
+          const availableList = slotsList
+            .filter((s) => s.isAvailable !== false)
+            .map((s) => (typeof s === 'string' ? s : s.slotTime || s.time));
+          setRescheduleSlots(availableList);
+          setNewRescheduleSlot((prev) => (availableList.includes(prev) ? prev : availableList[0] || ''));
+        } else {
+          setRescheduleSlots([]);
+          setNewRescheduleSlot('');
+        }
+      } catch {
+        setRescheduleSlots([]);
+        setNewRescheduleSlot('');
+      }
+    };
+    if (rescheduleModalOpen) {
+      fetchRescheduleSlots();
+    }
+  }, [rescheduleModalOpen, selectedAptToReschedule, newRescheduleDate]);
 
   // Book Appointment
   const handleBookAppointment = async (e) => {
@@ -194,12 +226,16 @@ const DonorAppointmentsView = () => {
   const openReschedule = (apt) => {
     setSelectedAptToReschedule(apt);
     setNewRescheduleDate(apt.slotDate);
-    setNewRescheduleSlot(apt.slotTime);
+    setNewRescheduleSlot(apt.slotTime || '');
+    setRescheduleSlots(apt.slotTime ? [apt.slotTime] : []);
     setRescheduleModalOpen(true);
   };
 
   const handleReschedule = async () => {
-    if (!selectedAptToReschedule || !newRescheduleDate || !newRescheduleSlot) return;
+    if (!selectedAptToReschedule || !newRescheduleDate || !newRescheduleSlot) {
+      toast.error('Please select a new date and time slot.');
+      return;
+    }
 
     setIsRescheduling(true);
     try {
@@ -212,16 +248,7 @@ const DonorAppointmentsView = () => {
       setRescheduleModalOpen(false);
       fetchAppointments();
     } catch (err) {
-      // Local fallback
-      setAppointments((prev) =>
-        prev.map((a) =>
-          a._id === selectedAptToReschedule._id
-            ? { ...a, slotDate: newRescheduleDate, slotTime: newRescheduleSlot, status: 'RESCHEDULED' }
-            : a
-        )
-      );
-      toast.success('Appointment rescheduled successfully!');
-      setRescheduleModalOpen(false);
+      toast.error(err.response?.data?.message || err.message || 'Failed to reschedule appointment.');
     } finally {
       setIsRescheduling(false);
     }
@@ -236,12 +263,7 @@ const DonorAppointmentsView = () => {
       setCancelDialogOpen(false);
       fetchAppointments();
     } catch (err) {
-      setAppointments((prev) =>
-        prev.map((a) =>
-          a._id === selectedAptToCancel._id ? { ...a, status: 'CANCELLED' } : a
-        )
-      );
-      toast.success('Appointment cancelled.');
+      toast.error(err.response?.data?.message || err.message || 'Failed to cancel appointment.');
       setCancelDialogOpen(false);
     }
   };
@@ -457,29 +479,35 @@ const DonorAppointmentsView = () => {
               <label className="block text-xs font-black text-slate-700 uppercase tracking-wider">
                 Step 3: Select Available Time Slot
               </label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                {availableSlots.map((slot) => {
-                  const isSelected = selectedSlot === slot;
-                  return (
-                    <button
-                      key={slot}
-                      type="button"
-                      onClick={() => setSelectedSlot(slot)}
-                      className={`
-                        px-3.5 py-3 rounded-xl border text-xs font-bold transition-all text-center
-                        ${
-                          isSelected
-                            ? 'bg-[#C62828] text-white border-[#C62828] shadow-md shadow-red-900/20'
-                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                        }
-                      `}
-                    >
-                      <Clock className="w-3.5 h-3.5 mx-auto mb-1 inline-block mr-1" />
-                      <span>{slot}</span>
-                    </button>
-                  );
-                })}
-              </div>
+              {availableSlots.length === 0 ? (
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-500">
+                  No slots available for this date
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  {availableSlots.map((slot) => {
+                    const isSelected = selectedSlot === slot;
+                    return (
+                      <button
+                        key={slot}
+                        type="button"
+                        onClick={() => setSelectedSlot(slot)}
+                        className={`
+                          px-3.5 py-3 rounded-xl border text-xs font-bold transition-all text-center
+                          ${
+                            isSelected
+                              ? 'bg-[#C62828] text-white border-[#C62828] shadow-md shadow-red-900/20'
+                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                          }
+                        `}
+                      >
+                        <Clock className="w-3.5 h-3.5 mx-auto mb-1 inline-block mr-1" />
+                        <span>{slot}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Notes */}
@@ -538,25 +566,31 @@ const DonorAppointmentsView = () => {
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
               New Time Slot
             </label>
-            <div className="grid grid-cols-2 gap-2">
-              {DEFAULT_SLOTS.map((slot) => (
-                <button
-                  key={slot}
-                  type="button"
-                  onClick={() => setNewRescheduleSlot(slot)}
-                  className={`
-                    px-3 py-2.5 rounded-xl border text-xs font-bold transition-all text-center
-                    ${
-                      newRescheduleSlot === slot
-                        ? 'bg-[#C62828] text-white border-[#C62828]'
-                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                    }
-                  `}
-                >
-                  {slot}
-                </button>
-              ))}
-            </div>
+            {rescheduleSlots.length === 0 ? (
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-500 text-center">
+                No slots available for this date
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                {rescheduleSlots.map((slot) => (
+                  <button
+                    key={slot}
+                    type="button"
+                    onClick={() => setNewRescheduleSlot(slot)}
+                    className={`
+                      px-3 py-2.5 rounded-xl border text-xs font-bold transition-all text-center
+                      ${
+                        newRescheduleSlot === slot
+                          ? 'bg-[#C62828] text-white border-[#C62828]'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }
+                    `}
+                  >
+                    {slot}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="pt-4 flex justify-end gap-3 border-t border-slate-100">

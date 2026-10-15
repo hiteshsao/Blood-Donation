@@ -218,23 +218,12 @@ export const FindBloodPage = () => {
         setInventory([]);
       }
     } catch (err) {
-      console.warn('[FindBloodPage] Direct inventory endpoint failed, using stock data:', err);
-      const foundBank = bloodBanks.find((b) => (b._id || b.id) === bankId);
-      if (foundBank?.stock) {
-        const fallbackItems = Object.entries(foundBank.stock).map(([bg, count]) => ({
-          bloodGroup: bg,
-          availableUnits: count,
-          lastUpdated: foundBank.lastUpdated || new Date().toISOString(),
-          lowStockThreshold: 5,
-        }));
-        setInventory(fallbackItems);
-      } else {
-        setInventoryError(err.response?.data?.message || 'Failed to load blood bank inventory.');
-      }
+      setInventory([]);
+      setInventoryError(err.response?.data?.message || 'Inventory could not be loaded');
     } finally {
       setInventoryLoading(false);
     }
-  }, [bloodBanks]);
+  }, []);
 
   // Synchronize active blood bank selection
   useEffect(() => {

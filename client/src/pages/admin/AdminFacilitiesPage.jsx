@@ -16,6 +16,8 @@ export const AdminFacilitiesPage = () => {
   const [facilities, setFacilities] = useState([]);
   const [activeTab, setActiveTab] = useState('ALL'); // 'ALL' | 'HOSPITAL' | 'BLOOD_BANK' | 'PENDING'
   const [loading, setLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [dialogLoading, setDialogLoading] = useState(false);
 
   // Dialog State
   const [confirmDialog, setConfirmDialog] = useState({
@@ -30,7 +32,9 @@ export const AdminFacilitiesPage = () => {
   // Reject Modal State
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [selectedFacilityToReject, setSelectedFacilityToReject] = useState(null);
-  const [rejectionReason, setRejectionReason] = useState('Incomplete regulatory documentation / invalid license expiry');
+  const [rejectionReason, setRejectionReason] = useState('Incomplete regulatory documentation or invalid license validity.');
+  const [rejectionError, setRejectionError] = useState('');
+  const [rejectLoading, setRejectLoading] = useState(false);
 
   const fetchFacilities = async () => {
     setLoading(true);
@@ -47,14 +51,24 @@ export const AdminFacilitiesPage = () => {
       const bankData = bankRes.value.data?.data || bankRes.value.data || [];
 
       const combined = [
-        ...(Array.isArray(hospData) ? hospData : []).map((h) => ({ ...h, type: 'HOSPITAL' })),
-        ...(Array.isArray(bankData) ? bankData : []).map((b) => ({ ...b, type: 'BLOOD_BANK' })),
+        ...(Array.isArray(hospData) ? hospData : []).map((h) => ({
+          ...h,
+          type: 'HOSPITAL',
+          status: h.status || h.verificationStatus || 'PENDING',
+          verificationStatus: h.verificationStatus || h.status || 'PENDING',
+        })),
+        ...(Array.isArray(bankData) ? bankData : []).map((b) => ({
+          ...b,
+          type: 'BLOOD_BANK',
+          status: b.status || b.verificationStatus || 'PENDING',
+          verificationStatus: b.verificationStatus || b.status || 'PENDING',
+        })),
       ];
 
       setFacilities(combined);
     } catch (err) {
       setFacilities([]);
-      toast.error(err.response?.data?.message || 'Failed to load data.');
+      toast.error(err.response?.data?.message || err.message || 'Failed to load data.');
     } finally {
       setLoading(false);
     }
@@ -74,15 +88,14 @@ export const AdminFacilitiesPage = () => {
       isDestructive: false,
       action: async () => {
         try {
-          await adminAPI.approveFacility(fac.type === 'HOSPITAL' ? 'hospitals' : 'bloodbanks', fac._id, {
-            status: 'APPROVED',
-          });
-          setFacilities((prev) =>
-            prev.map((f) => (f._id === fac._id ? { ...f, status: 'APPROVED' } : f))
-          );
-          toast.success(`Facility ${fac.name} approved. Confirmation email dispatched.`);
+          const res =
+            fac.type === 'HOSPITAL'
+              ? await adminAPI.verifyHospital(fac._id, { decision: 'APPROVE' })
+              : await adminAPI.verifyBloodBank(fac._id, { decision: 'APPROVE' });
+          toast.success(res.data?.message || `Facility ${fac.name} approved. Confirmation email dispatched.`);
+          await fetchFacilities();
         } catch (err) {
-          toast.error(err.response?.data?.message || 'Action failed.');
+          toast.error(err.response?.data?.message || err.message || 'Action failed.');
         }
       },
     });
@@ -92,6 +105,7 @@ export const AdminFacilitiesPage = () => {
   const handleOpenReject = (fac) => {
     setSelectedFacilityToReject(fac);
     setRejectionReason('Incomplete regulatory documentation or invalid license validity.');
+    setRejectionError('');
     setRejectModalOpen(true);
   };
 
@@ -99,25 +113,42 @@ export const AdminFacilitiesPage = () => {
     e.preventDefault();
     if (!selectedFacilityToReject) return;
 
+    const trimmedReason = rejectionReason.trim();
+    if (!trimmedReason) {
+      setRejectionError('Please provide a reason for rejecting this facility.');
+      return;
+    }
+
+    setRejectLoading(true);
+    setActionLoading(true);
     try {
-      await adminAPI.rejectFacility(
-        selectedFacilityToReject.type === 'HOSPITAL' ? 'hospitals' : 'bloodbanks',
-        selectedFacilityToReject._id,
-        { reason: rejectionReason }
-      );
-      setFacilities((prev) =>
-        prev.map((f) => (f._id === selectedFacilityToReject._id ? { ...f, status: 'REJECTED' } : f))
-      );
-      toast.success(`Facility application rejected. Rejection notice sent to applicant.`);
+      const res =
+        selectedFacilityToReject.type === 'HOSPITAL'
+          ? await adminAPI.verifyHospital(selectedFacilityToReject._id, {
+              decision: 'REJECT',
+              reason: trimmedReason,
+            })
+          : await adminAPI.verifyBloodBank(selectedFacilityToReject._id, {
+              decision: 'REJECT',
+              reason: trimmedReason,
+            });
+      toast.success(res.data?.message || 'Facility application rejected. Rejection notice sent to applicant.');
       setRejectModalOpen(false);
+      setSelectedFacilityToReject(null);
+      setRejectionReason('');
+      setRejectionError('');
+      await fetchFacilities();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Action failed.');
+      toast.error(err.response?.data?.message || err.message || 'Action failed.');
+    } finally {
+      setRejectLoading(false);
+      setActionLoading(false);
     }
   };
 
   // 3. Block Facility
   const handleBlock = (fac) => {
-    const isBlocked = fac.status === 'BLOCKED';
+    const isBlocked = fac.status === 'BLOCKED' || fac.verificationStatus === 'BLOCKED';
     setConfirmDialog({
       isOpen: true,
       title: isBlocked ? `Restore ${fac.name}?` : `Block ${fac.name}?`,
@@ -129,34 +160,54 @@ export const AdminFacilitiesPage = () => {
       action: async () => {
         try {
           if (isBlocked) {
-            await adminAPI.approveFacility(fac.type === 'HOSPITAL' ? 'hospitals' : 'bloodbanks', fac._id);
-            setFacilities((prev) =>
-              prev.map((f) => (f._id === fac._id ? { ...f, status: 'APPROVED' } : f))
-            );
-            toast.success(`Facility ${fac.name} restored.`);
+            const res =
+              fac.type === 'HOSPITAL'
+                ? await adminAPI.verifyHospital(fac._id, { decision: 'APPROVE' })
+                : await adminAPI.verifyBloodBank(fac._id, { decision: 'APPROVE' });
+            toast.success(res.data?.message || `Facility ${fac.name} restored.`);
           } else {
-            await adminAPI.blockFacility(fac.type === 'HOSPITAL' ? 'hospitals' : 'bloodbanks', fac._id, {
-              reason: 'Administrative compliance audit sanction',
-            });
-            setFacilities((prev) =>
-              prev.map((f) => (f._id === fac._id ? { ...f, status: 'BLOCKED' } : f))
-            );
-            toast.success(`Facility ${fac.name} has been blocked.`);
+            const res =
+              fac.type === 'HOSPITAL'
+                ? await adminAPI.verifyHospital(fac._id, {
+                    decision: 'BLOCK',
+                    reason: 'Administrative compliance audit sanction',
+                  })
+                : await adminAPI.verifyBloodBank(fac._id, {
+                    decision: 'BLOCK',
+                    reason: 'Administrative compliance audit sanction',
+                  });
+            toast.success(res.data?.message || `Facility ${fac.name} has been blocked.`);
           }
+          await fetchFacilities();
         } catch (err) {
-          toast.error(err.response?.data?.message || 'Action failed.');
+          toast.error(err.response?.data?.message || err.message || 'Action failed.');
         }
       },
     });
+  };
+
+  const handleConfirmDialogAction = async () => {
+    if (!confirmDialog.action || dialogLoading) return;
+    setDialogLoading(true);
+    setActionLoading(true);
+    try {
+      await confirmDialog.action();
+      setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+    } finally {
+      setDialogLoading(false);
+      setActionLoading(false);
+    }
   };
 
   // Filter Data based on active tab
   const filteredData = facilities.filter((item) => {
     if (activeTab === 'HOSPITAL') return item.type === 'HOSPITAL';
     if (activeTab === 'BLOOD_BANK') return item.type === 'BLOOD_BANK';
-    if (activeTab === 'PENDING') return item.status === 'PENDING';
+    if (activeTab === 'PENDING') return item.status === 'PENDING' || item.verificationStatus === 'PENDING';
     return true;
   });
+
+  const isButtonsDisabled = loading || actionLoading || dialogLoading || rejectLoading;
 
   const columns = [
     {
@@ -217,49 +268,58 @@ export const AdminFacilitiesPage = () => {
       header: 'Verification Status',
       key: 'status',
       sortable: true,
-      render: (row) => <StatusBadge status={row.status} size="xs" />,
+      render: (row) => <StatusBadge status={row.status || row.verificationStatus} size="xs" />,
     },
     {
       header: 'Actions',
       key: 'actions',
       sortable: false,
-      render: (row) => (
-        <div className="flex items-center gap-2">
-          {row.status !== 'APPROVED' && (
-            <Button
-              variant="outline"
-              size="xs"
-              onClick={() => handleApprove(row)}
-              className="text-emerald-700 border-emerald-300 hover:bg-emerald-50"
-              leftIcon={<CheckCircle2 className="w-3 h-3" />}
-            >
-              Approve
-            </Button>
-          )}
+      render: (row) => {
+        const isBlocked = row.status === 'BLOCKED' || row.verificationStatus === 'BLOCKED';
+        const isApproved = row.status === 'APPROVED' || row.status === 'VERIFIED';
+        const isPending = row.status === 'PENDING' || row.verificationStatus === 'PENDING';
 
-          {row.status === 'PENDING' && (
+        return (
+          <div className="flex items-center gap-2">
+            {!isApproved && (
+              <Button
+                variant="outline"
+                size="xs"
+                onClick={() => handleApprove(row)}
+                disabled={isButtonsDisabled}
+                className="text-emerald-700 border-emerald-300 hover:bg-emerald-50"
+                leftIcon={<CheckCircle2 className="w-3 h-3" />}
+              >
+                Approve
+              </Button>
+            )}
+
+            {isPending && (
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => handleOpenReject(row)}
+                disabled={isButtonsDisabled}
+                className="text-red-700 hover:bg-red-50"
+                leftIcon={<XCircle className="w-3 h-3" />}
+              >
+                Reject
+              </Button>
+            )}
+
             <Button
               variant="ghost"
               size="xs"
-              onClick={() => handleOpenReject(row)}
-              className="text-red-700 hover:bg-red-50"
-              leftIcon={<XCircle className="w-3 h-3" />}
+              onClick={() => handleBlock(row)}
+              disabled={isButtonsDisabled}
+              className={isBlocked ? 'text-emerald-700 hover:bg-emerald-50' : 'text-slate-600 hover:bg-slate-100'}
+              leftIcon={<Lock className="w-3 h-3" />}
             >
-              Reject
+              {isBlocked ? 'Unblock' : 'Block'}
             </Button>
-          )}
-
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={() => handleBlock(row)}
-            className={row.status === 'BLOCKED' ? 'text-emerald-700 hover:bg-emerald-50' : 'text-slate-600 hover:bg-slate-100'}
-            leftIcon={<Lock className="w-3 h-3" />}
-          >
-            {row.status === 'BLOCKED' ? 'Unblock' : 'Block'}
-          </Button>
-        </div>
-      ),
+          </div>
+        );
+      },
     },
   ];
 
@@ -284,6 +344,7 @@ export const AdminFacilitiesPage = () => {
           variant="secondary"
           size="sm"
           onClick={fetchFacilities}
+          disabled={isButtonsDisabled}
           leftIcon={<RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />}
         >
           Refresh Registry
@@ -296,7 +357,7 @@ export const AdminFacilitiesPage = () => {
           { key: 'ALL', label: `All Facilities (${facilities.length})` },
           { key: 'HOSPITAL', label: `Hospitals (${facilities.filter((f) => f.type === 'HOSPITAL').length})` },
           { key: 'BLOOD_BANK', label: `Blood Banks (${facilities.filter((f) => f.type === 'BLOOD_BANK').length})` },
-          { key: 'PENDING', label: `Pending Review (${facilities.filter((f) => f.status === 'PENDING').length})` },
+          { key: 'PENDING', label: `Pending Review (${facilities.filter((f) => f.status === 'PENDING' || f.verificationStatus === 'PENDING').length})` },
         ].map((tab) => (
           <button
             key={tab.key}
@@ -332,23 +393,32 @@ export const AdminFacilitiesPage = () => {
       {/* Confirm Dialog */}
       <ConfirmDialog
         isOpen={confirmDialog.isOpen}
-        onClose={() => setConfirmDialog((prev) => ({ ...prev, isOpen: false }))}
-        onConfirm={() => {
-          if (confirmDialog.action) confirmDialog.action();
-          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+        onClose={() => {
+          if (!dialogLoading) {
+            setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+          }
         }}
+        onConfirm={handleConfirmDialogAction}
         title={confirmDialog.title}
         message={confirmDialog.message}
         confirmText={confirmDialog.confirmText}
         isDestructive={confirmDialog.isDestructive}
+        isLoading={dialogLoading}
       />
 
       {/* Rejection Reason Modal */}
       {rejectModalOpen && (
         <Modal
           isOpen={rejectModalOpen}
-          onClose={() => setRejectModalOpen(false)}
+          onClose={() => {
+            if (!rejectLoading) {
+              setRejectModalOpen(false);
+              setRejectionError('');
+            }
+          }}
           title={`Reject Application: ${selectedFacilityToReject?.name}`}
+          showCloseButton={!rejectLoading}
+          closeOnBackdrop={!rejectLoading}
         >
           <form onSubmit={handleConfirmReject} className="space-y-4">
             <p className="text-xs text-slate-500">
@@ -360,7 +430,14 @@ export const AdminFacilitiesPage = () => {
               label="Rejection Reason"
               required
               value={rejectionReason}
-              onChange={(e) => setRejectionReason(e.target.value)}
+              onChange={(e) => {
+                setRejectionReason(e.target.value);
+                if (e.target.value.trim()) {
+                  setRejectionError('');
+                }
+              }}
+              error={rejectionError}
+              disabled={rejectLoading}
             />
 
             <div className="pt-2 flex justify-end gap-3">
@@ -368,7 +445,11 @@ export const AdminFacilitiesPage = () => {
                 variant="ghost"
                 size="md"
                 type="button"
-                onClick={() => setRejectModalOpen(false)}
+                disabled={rejectLoading}
+                onClick={() => {
+                  setRejectModalOpen(false);
+                  setRejectionError('');
+                }}
               >
                 Cancel
               </Button>
@@ -376,6 +457,8 @@ export const AdminFacilitiesPage = () => {
                 variant="danger"
                 size="md"
                 type="submit"
+                disabled={rejectLoading}
+                isLoading={rejectLoading}
                 leftIcon={<XCircle className="w-4 h-4" />}
               >
                 Confirm Rejection & Email Applicant

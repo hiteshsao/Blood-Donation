@@ -11,8 +11,8 @@ import {
   LogOut,
   Building2,
   ExternalLink,
-  Sparkles,
 } from 'lucide-react';
+import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import { Button, StatusBadge } from '../common';
 import toast from 'react-hot-toast';
@@ -37,27 +37,43 @@ export const PendingVerificationScreen = ({ onUploadLicenseClick, onVerification
 
   const handleCheckStatus = async () => {
     setChecking(true);
-    // Simulate re-verifying with server
-    setTimeout(() => {
-      setChecking(false);
-      if (user?.status === 'ACTIVE' || user?.isVerified) {
+    try {
+      const res = await api.get('/auth/me');
+      const freshUser = res.data?.user || res.data?.data?.user;
+      const freshFacility = res.data?.facility || res.data?.data?.facility || freshUser?.facility;
+
+      const vStatus =
+        freshFacility?.verificationStatus ||
+        freshUser?.verificationStatus ||
+        (freshUser?.status === 'ACTIVE' || freshFacility?.isVerified || freshUser?.isVerified
+          ? 'VERIFIED'
+          : freshUser?.status || 'PENDING');
+
+      const reason = freshFacility?.rejectionReason || freshUser?.rejectionReason;
+
+      updateUser({
+        ...freshUser,
+        facility: freshFacility,
+        verificationStatus: vStatus,
+        status: vStatus === 'VERIFIED' ? 'ACTIVE' : (vStatus === 'REJECTED' ? 'REJECTED' : freshUser?.status),
+        isVerified: vStatus === 'VERIFIED',
+        rejectionReason: reason || null,
+      });
+
+      if (vStatus === 'VERIFIED' || vStatus === 'APPROVED') {
         toast.success('Your facility account has been verified! Welcome to LifeDrop.');
         if (onVerificationApproved) onVerificationApproved();
+      } else if (vStatus === 'REJECTED') {
+        const reasonText = reason ? `: ${reason}` : '';
+        toast.error(`Your application was rejected${reasonText}`);
       } else {
-        toast.error('Verification review is still in progress by our medical audit team.');
+        toast('Still pending admin approval');
       }
-    }, 900);
-  };
-
-  const handleSimulateApproval = () => {
-    updateUser({
-      ...user,
-      status: 'ACTIVE',
-      isVerified: true,
-      verificationStatus: 'APPROVED',
-    });
-    toast.success('Demo Simulation: Account status updated to APPROVED/ACTIVE!');
-    if (onVerificationApproved) onVerificationApproved();
+    } catch (err) {
+      toast.error(err.response?.data?.message || err.message || 'Failed to check verification status.');
+    } finally {
+      setChecking(false);
+    }
   };
 
   return (
@@ -184,7 +200,7 @@ export const PendingVerificationScreen = ({ onUploadLicenseClick, onVerification
               isLoading={checking}
               leftIcon={<RefreshCw className={`w-4 h-4 ${checking ? 'animate-spin' : ''}`} />}
             >
-              Refresh Verification Status
+              Check Status Now
             </Button>
 
             {onUploadLicenseClick && (
@@ -209,23 +225,6 @@ export const PendingVerificationScreen = ({ onUploadLicenseClick, onVerification
             </Button>
           </div>
 
-          {/* Evaluator Quick Bypass Switch */}
-          <div className="mt-4 p-3.5 rounded-2xl bg-gradient-to-r from-red-50 to-rose-50 border border-red-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-[#C62828] shrink-0" />
-              <div>
-                <strong className="text-slate-900">Reviewer Test Mode:</strong>
-                <span className="text-slate-600 ml-1">Simulate administrative approval to test all operational features immediately.</span>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={handleSimulateApproval}
-              className="px-3 py-1.5 rounded-xl bg-[#C62828] text-white font-bold hover:bg-[#991B1B] transition-colors shrink-0 shadow-sm"
-            >
-              Simulate Approval
-            </button>
-          </div>
 
           {/* Support / Helpdesk Hotline Footer */}
           <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-2">
